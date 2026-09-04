@@ -15,6 +15,86 @@ export type Database = {
   }
   public: {
     Tables: {
+      inbound_events: {
+        Row: {
+          attachment_count: number
+          created_at: string
+          document_ids: string[]
+          documents_created: number
+          email_id: string | null
+          error: string | null
+          event_type: string
+          from_address: string | null
+          id: string
+          location_id: string | null
+          message_id: string | null
+          provider: string
+          subject: string | null
+          to_addresses: string[]
+        }
+        Insert: {
+          attachment_count?: number
+          created_at?: string
+          document_ids?: string[]
+          documents_created?: number
+          email_id?: string | null
+          error?: string | null
+          event_type: string
+          from_address?: string | null
+          id?: string
+          location_id?: string | null
+          message_id?: string | null
+          provider: string
+          subject?: string | null
+          to_addresses?: string[]
+        }
+        Update: {
+          attachment_count?: number
+          created_at?: string
+          document_ids?: string[]
+          documents_created?: number
+          email_id?: string | null
+          error?: string | null
+          event_type?: string
+          from_address?: string | null
+          id?: string
+          location_id?: string | null
+          message_id?: string | null
+          provider?: string
+          subject?: string | null
+          to_addresses?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inbound_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "inbound_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "inbound_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
       inventory_items: {
         Row: {
           base_unit: Database["public"]["Enums"]["uom"]

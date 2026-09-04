@@ -106,13 +106,13 @@ Use Toast's own `businessDate`, never the calendar date of `openedDate` — it a
 | Spreadsheet export (`.csv .tsv .xlsx .xls`, ≤ 5 MB) — emailed, forwarded or uploaded | `email` / `forward` / `upload` | Same channels as PDFs. No LLM parse: `lib/jobs/parseSpreadsheet.ts` finds the header row, maps columns (known layout → saved `vendor_sheet_layouts` → Haiku once → header synonyms), writes `invoice_lines` directly, one document per (invoice number, date) group, then map → post. The review screen shows the source rows with editable column roles. |
 | Manual intake | `manual` | App form: vendor, date, lines. Skips parsing; goes straight to mapping. For the vendor that only leaves a paper slip. |
 
-**Address.** `invoices-<slug>@in.<domain>` per location (`locations.inbound_email_slug`). Postmark routes `*@in.<domain>` to `POST https://worker.<railway>/inbound/postmark`, authenticated with a basic-auth secret in the URL plus Postmark's IP allowlist. (Simple build: Postmark's default inbound address posts to the Next.js route `/api/inbound/postmark/[secret]` — see CLAUDE.md.)
+**Address.** Resend receives on its default domain today (`INBOUND_EMAIL_ADDRESS`, `…@<id>.resend.app`; any local part → the single location) and on a custom domain via an MX record later, where `invoices-<slug>@` local parts map to `locations.inbound_email_slug`. Resend posts `email.received` (Svix-signed) to `/api/inbound/resend`; attachments are fetched from Resend's API rather than carried in the webhook body. Postmark (`/api/inbound/postmark/[secret]`) is the deprecated predecessor and is removed once Resend has processed 10 real invoices.
 
-**Webhook (`/inbound/postmark`).** Must return 200 fast:
+**Webhook (`/api/inbound/resend`; the deprecated Postmark route follows the same steps).** Must return 200 fast:
 
-1. Resolve location from the `To` address; unknown slug → 200 + log (never bounce, vendors don't read bounces).
-2. For each attachment that is a PDF or image: `sha256` → skip if `(location_id, content_hash)` exists; else upload to Storage `invoices/<tenant>/<location>/<yyyy>/<mm>/<hash>.<ext>` and insert `invoice_documents(status='received', source='email', email_from, email_subject, email_message_id)`.
-3. No attachment but an HTML body (some distributors inline the invoice): render body to PDF and treat as an attachment.
+1. Verify the Svix signature (401 otherwise), acknowledge with 200, continue in `after()`. Resolve location from the `To` address; unknown slug → log (never bounce, vendors don't read bounces). Record an `inbound_events` row for every delivery (provider, event, email id, message id, from/to, attachment count, documents created, error).
+2. For each attachment that is a PDF, image or spreadsheet: fetch its metadata via `GET /emails/receiving/{email_id}/attachments/{attachment_id}` and download `download_url`; `sha256` → skip if `(location_id, content_hash)` exists; else upload to Storage `invoices/<location>/<yyyy>/<mm>/<hash>.<ext>` and insert `invoice_documents(status='received', source='email' | 'forward', email_from, email_subject, email_message_id)`.
+3. No usable attachment but a body (some distributors inline the invoice): fetch it via `GET /emails/receiving/{email_id}` and store the text as a plain-text document for parsing.
 4. Guess `vendor_id` from `vendors.email_domains`.
 5. Enqueue `invoice-parse(document_id)`.
 

@@ -1,0 +1,30 @@
+{
+  "type": "email.received",
+  "created_at": "2026-09-04T12:30:00.000Z",
+  "data": {
+    "email_id": "re_test_fixture_0001",
+    "created_at": "2026-09-04T12:29:58.000Z",
+    "from": "Restaurant Depot Receipts <receipts@restaurantdepot.com>",
+    "to": ["invoices@xchef.resend.app"],
+    "cc": [],
+    "bcc": [],
+    "subject": "Receipt I99001 — Mad Moose",
+    "message_id": "<fixture-0001@restaurantdepot.com>",
+    "attachments": [
+      {
+        "id": "att_fixture_0001",
+        "filename": "synthetic-rd-receipt.csv",
+        "content_type": "text/csv",
+        "content_disposition": "attachment",
+        "content_id": null
+      },
+      {
+        "id": "att_fixture_logo",
+        "filename": "logo.gif",
+        "content_type": "image/gif",
+        "content_disposition": "inline",
+        "content_id": "logo"
+      }
+    ]
+  }
+}

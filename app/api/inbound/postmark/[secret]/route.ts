@@ -1,8 +1,9 @@
 import { after, NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { env } from "@/lib/env";
-import { createServiceSupabase, type ServiceClient } from "@/lib/db/service";
-import { createInvoiceDocument, emailDomain, runInvoicePipeline, type IntakeSource } from "@/lib/jobs/intake";
+import { createServiceSupabase } from "@/lib/db/service";
+import { createInvoiceDocument, runInvoicePipeline, type IntakeSource } from "@/lib/jobs/intake";
+import { extractEmail, forwardedSender, guessVendorFromSender, htmlToText, resolveInboundLocation } from "@/lib/inbound/shared";
 import { normalizeMime } from "@/lib/llm/invoice-parse";
 import { maxBytesFor, SPREADSHEET_MIME } from "@/lib/storage";
 
@@ -10,6 +11,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 /**
+ * @deprecated Inbound email moved to Resend (app/api/inbound/resend/route.ts,
+ * 2026-09-04). This route stays wired until Resend has processed 10 real
+ * invoices, then it is removed together with POSTMARK_INBOUND_SECRET.
+ *
  * Postmark inbound webhook (CLAUDE.md rules 10–11). Secret in the path,
  * Postmark IP allowlist, body cap; ALWAYS returns 200 fast and never bounces.
  * Parsing runs in `after()` once the response has been sent.
@@ -61,63 +66,17 @@ function ipAllowed(request: NextRequest): boolean {
   return Boolean(ip && list.includes(ip));
 }
 
-function extractEmail(s: string | undefined | null): string | null {
-  if (!s) return null;
-  const angle = s.match(/<([^>]+)>/);
-  const m = (angle ? angle[1] : s).match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-  return m ? m[0].toLowerCase() : null;
-}
-
 function isForward(mail: Inbound): boolean {
   if (/^\s*(fwd?|fw)\s*:/i.test(mail.Subject ?? "")) return true;
   const names = new Set((mail.Headers ?? []).map((h) => h.Name.toLowerCase()));
   return names.has("in-reply-to") || names.has("references") || names.has("x-forwarded-message-id");
 }
 
-/** First "From:" line inside a forwarded body, e.g. "From: Sysco Billing <ar@sysco.com>". */
-function forwardedSender(text: string | undefined): string | null {
-  if (!text) return null;
-  const m = text.match(/^\s*>?\s*\*?From:\*?\s*(.+)$/im);
-  return extractEmail(m?.[1]) ?? null;
-}
-
-function slugsIn(mail: Inbound): string[] {
-  const addrs = [mail.To ?? "", mail.Cc ?? "", ...(mail.ToFull ?? []).map((a) => a.Email ?? ""), ...(mail.CcFull ?? []).map((a) => a.Email ?? "")].join(" ");
-  return [...addrs.matchAll(/invoices-([a-z0-9-]+)@/gi)].map((m) => m[1].toLowerCase());
-}
-
-function htmlToText(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<br\s*\/?>|<\/(p|div|tr|li|h\d)>/gi, "\n")
-    .replace(/<\/t[dh]>/gi, "\t")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+function addressesIn(mail: Inbound): string[] {
+  return [mail.To ?? "", mail.Cc ?? "", ...(mail.ToFull ?? []).map((a) => a.Email ?? ""), ...(mail.CcFull ?? []).map((a) => a.Email ?? "")].filter(Boolean);
 }
 
 const DOC_MIMES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", ...SPREADSHEET_MIME]);
-
-async function resolveLocation(svc: ServiceClient, mail: Inbound): Promise<{ id: string; tenant_id: string; name: string } | null> {
-  for (const slug of slugsIn(mail)) {
-    const { data } = await svc.from("locations").select("id, tenant_id, name").eq("inbound_email_slug", slug).maybeSingle();
-    if (data) return data;
-  }
-  const { data } = await svc.from("locations").select("id, tenant_id, name").order("created_at").limit(1);
-  return data?.[0] ?? null;
-}
-
-async function guessVendor(svc: ServiceClient, tenantId: string, sender: string | null): Promise<string | null> {
-  const domain = emailDomain(sender);
-  if (!domain) return null;
-  const { data } = await svc.from("vendors").select("id").eq("tenant_id", tenantId).contains("email_domains", [domain]).limit(1);
-  return data?.[0]?.id ?? null;
-}
 
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/inbound/postmark/[secret]">) {
   const { secret } = await ctx.params;
@@ -146,7 +105,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/inbound
   const mail = parsed.data;
 
   const svc = createServiceSupabase();
-  const location = await resolveLocation(svc, mail);
+  const location = await resolveInboundLocation(svc, addressesIn(mail));
   if (!location) {
     console.warn(JSON.stringify({ msg: "postmark: no location for address", to: mail.To, messageId: mail.MessageID }));
     return ok({ skipped: "unknown location" });
@@ -157,7 +116,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/inbound
   const originalSender = forward ? (forwardedSender(mail.TextBody) ?? forwardedSender(mail.HtmlBody ? htmlToText(mail.HtmlBody) : undefined)) : null;
   const emailFrom = (originalSender ?? senderRaw ?? null)?.toLowerCase() ?? null;
   const source: IntakeSource = forward ? "forward" : "email";
-  const vendorId = await guessVendor(svc, location.tenant_id, emailFrom);
+  const vendorId = await guessVendorFromSender(svc, location.tenant_id, emailFrom);
 
   const created: Array<{ documentId: string; duplicate: boolean; name: string }> = [];
   const errors: string[] = [];

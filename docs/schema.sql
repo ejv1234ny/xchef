@@ -771,3 +771,34 @@ create index on vendor_sheet_layouts (vendor_id);
 alter table vendor_sheet_layouts enable row level security;
 create policy tenant_isolation on vendor_sheet_layouts for all
   using (tenant_id in (select my_tenant_ids())) with check (tenant_id in (select my_tenant_ids()));
+
+-- ============================================================================
+--  MIGRATION 0007 (20260904050000_inbound_events.sql, applied)
+--  inbound_events: one row per inbound email webhook delivery (Resend; Postmark
+--  while deprecated) whether or not a document was created — provider,
+--  event_type, email_id, message_id, from/to, subject, attachment_count,
+--  documents_created, document_ids, error. Written by the service role only;
+--  members of the location's tenant can read it.
+-- ============================================================================
+create table inbound_events (
+  id                 uuid primary key default gen_random_uuid(),
+  location_id        uuid references locations(id) on delete set null,
+  provider           text not null,
+  event_type         text not null,
+  email_id           text,
+  message_id         text,
+  from_address       text,
+  to_addresses       text[] not null default '{}',
+  subject            text,
+  attachment_count   int  not null default 0,
+  documents_created  int  not null default 0,
+  document_ids       uuid[] not null default '{}',
+  error              text,
+  created_at         timestamptz not null default now()
+);
+create index on inbound_events (created_at desc);
+create index on inbound_events (email_id);
+create index on inbound_events (message_id);
+alter table inbound_events enable row level security;
+create policy location_read on inbound_events for select
+  using (location_id in (select my_location_ids()));

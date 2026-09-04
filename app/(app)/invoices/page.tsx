@@ -4,6 +4,7 @@ import { createServerSupabase } from "@/lib/db/server";
 import { InvoiceUpload, ManualInvoiceForm } from "@/components/invoice-upload";
 import { fmtDate, fmtMoney, statusChipClass, statusLabel, Chip, Flash } from "@/components/ui-format";
 import { pasteInvoice } from "./actions";
+import { CopyAddress } from "@/components/copy-address";
 
 export const metadata = { title: "Invoices" };
 
@@ -33,9 +34,7 @@ export default async function InvoicesPage({ searchParams }: PageProps<"/invoice
       <section className="flex flex-col gap-3">
         <InvoiceUpload variant="camera" />
         <InvoiceUpload variant="file" />
-        <p className="text-center text-xs text-neutral-500">
-          Or email invoices to <code className="break-all">22714cd05547c0dd0827e942fe3a47ed@inbound.postmarkapp.com</code>
-        </p>
+        {process.env.INBOUND_EMAIL_ADDRESS ? <CopyAddress address={process.env.INBOUND_EMAIL_ADDRESS} /> : null}
       </section>
 
       <details className="rounded-xl border border-neutral-200 bg-white">

@@ -45,7 +45,13 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             <input name="inbound_email_slug" defaultValue={ctx.location.inbound_email_slug ?? ""} className={inputCls} />
           </label>
           <p className="text-xs text-neutral-500">
-            Vendors can email invoices to <code>22714cd05547c0dd0827e942fe3a47ed@inbound.postmarkapp.com</code> today.
+            {process.env.INBOUND_EMAIL_ADDRESS ? (
+              <>
+                Vendors can email invoices to <code>{process.env.INBOUND_EMAIL_ADDRESS}</code> today.
+              </>
+            ) : (
+              "Inbound email address not configured (INBOUND_EMAIL_ADDRESS)."
+            )}
           </p>
           <button className={btnCls}>Save location</button>
         </form>
