@@ -4,7 +4,7 @@ import { env } from "@/lib/env";
 import { createServiceSupabase, type ServiceClient } from "@/lib/db/service";
 import { createInvoiceDocument, emailDomain, runInvoicePipeline, type IntakeSource } from "@/lib/jobs/intake";
 import { normalizeMime } from "@/lib/llm/invoice-parse";
-import { INVOICE_MAX_BYTES } from "@/lib/storage";
+import { maxBytesFor, SPREADSHEET_MIME } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -101,7 +101,7 @@ function htmlToText(html: string): string {
     .trim();
 }
 
-const DOC_MIMES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp"]);
+const DOC_MIMES = new Set(["application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", ...SPREADSHEET_MIME]);
 
 async function resolveLocation(svc: ServiceClient, mail: Inbound): Promise<{ id: string; tenant_id: string; name: string } | null> {
   for (const slug of slugsIn(mail)) {
@@ -166,8 +166,9 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/inbound
     try {
       const bytes = new Uint8Array(Buffer.from(a.Content, "base64"));
       if (bytes.byteLength === 0) continue;
-      if (bytes.byteLength > INVOICE_MAX_BYTES) {
-        errors.push(`${a.Name}: over ${INVOICE_MAX_BYTES / 1024 / 1024} MB`);
+      const cap = maxBytesFor(normalizeMime(a.ContentType, a.Name));
+      if (bytes.byteLength > cap) {
+        errors.push(`${a.Name}: over ${cap / 1024 / 1024} MB`);
         continue;
       }
       const doc = await createInvoiceDocument(svc, {

@@ -7,6 +7,9 @@ import { createServerSupabase } from "@/lib/db/server";
 import { createServiceSupabase } from "@/lib/db/service";
 import { getAppContext } from "@/lib/db/context";
 import { mapInvoiceDocument, postInvoiceIfResolved } from "@/lib/jobs/mapInvoice";
+import { runInvoicePipeline } from "@/lib/jobs/intake";
+import { saveHumanSheetLayout, type SpreadsheetExtraction } from "@/lib/jobs/parseSpreadsheet";
+import { COLUMN_ROLES, type ColumnMap, type ColumnRole } from "@/lib/core/sheets";
 import { Constants } from "@/lib/db/types";
 
 const uuid = z.uuid();
@@ -280,4 +283,45 @@ export async function rerunMapping(formData: FormData) {
   }
   refresh(documentId);
   back(documentId, "ok", `Mapping re-run. ${tail}`);
+}
+
+/**
+ * Spreadsheet documents: the header row's column roles were edited. Save the
+ * map as a human-confirmed vendor_sheet_layouts row (keyed by the header
+ * fingerprint, so every future export with this header uses it), then
+ * re-parse the file and re-run map → post.
+ */
+export async function updateSheetLayout(formData: FormData) {
+  const ctx = await getAppContext();
+  const documentId = uuid.safeParse(field(formData, "document_id")).data;
+  if (!documentId) redirect("/invoices?error=Bad%20request");
+  const supabase = await createServerSupabase();
+  const { data: doc, error } = await supabase.from("invoice_documents").select("id, vendor_id, raw_extraction").eq("id", documentId).eq("location_id", ctx.location.id).maybeSingle();
+  if (error) back(documentId, "error", error.message);
+  if (!doc) back(documentId, "error", "Invoice not found");
+  const ex = doc.raw_extraction as Partial<SpreadsheetExtraction> | null;
+  if (!ex || ex.kind !== "spreadsheet" || !ex.fingerprint || !Array.isArray(ex.header)) back(documentId, "error", "Not a spreadsheet invoice");
+
+  const columnMap: ColumnMap = {};
+  const roles = new Set<ColumnRole>();
+  for (const [key, value] of formData.entries()) {
+    const m = key.match(/^col_(\d+)$/);
+    if (!m || typeof value !== "string") continue;
+    const role = COLUMN_ROLES.find((r) => r === value);
+    if (!role) continue;
+    if (role !== "ignore" && roles.has(role)) back(documentId, "error", `"${role}" is assigned to two columns`);
+    if (role !== "ignore") roles.add(role);
+    columnMap[m[1]] = role;
+  }
+  if (!roles.has("description") || !(roles.has("quantity") || roles.has("extended_price"))) back(documentId, "error", "Assign Description plus Quantity or Line total");
+
+  const svc = createServiceSupabase();
+  try {
+    await saveHumanSheetLayout(svc, { tenantId: ctx.tenant.id, vendorId: doc.vendor_id, fingerprint: ex.fingerprint, headerCells: ex.header, columnMap, userId: ctx.userId });
+    const r = await runInvoicePipeline(svc, documentId, { reparse: true });
+    refresh(documentId);
+    back(documentId, "ok", `Column roles saved and remembered. Re-read ${r.lines} line${r.lines === 1 ? "" : "s"}${r.siblings ? ` across ${r.siblings + 1} invoices` : ""}; ${r.unmapped} still to review.`);
+  } catch (e) {
+    back(documentId, "error", e instanceof Error ? e.message : String(e));
+  }
 }

@@ -91,7 +91,7 @@ export async function logLlmCall(
   svc: ServiceClient,
   entry: {
     tenant_id: string;
-    kind: "recipe-draft" | "invoice-parse" | "sku-match";
+    kind: "recipe-draft" | "invoice-parse" | "sku-match" | "sheet-map";
     ref_id?: string | null;
     model: string;
     usage?: ToolCallResult<unknown>["usage"];

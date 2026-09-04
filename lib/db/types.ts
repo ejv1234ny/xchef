@@ -1010,6 +1010,63 @@ export type Database = {
           },
         ]
       }
+      vendor_sheet_layouts: {
+        Row: {
+          column_map: Json
+          confidence: number | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string
+          header_cells: string[]
+          header_fingerprint: string
+          id: string
+          source: string
+          tenant_id: string
+          vendor_id: string | null
+        }
+        Insert: {
+          column_map: Json
+          confidence?: number | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          header_cells?: string[]
+          header_fingerprint: string
+          id?: string
+          source?: string
+          tenant_id: string
+          vendor_id?: string | null
+        }
+        Update: {
+          column_map?: Json
+          confidence?: number | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string
+          header_cells?: string[]
+          header_fingerprint?: string
+          id?: string
+          source?: string
+          tenant_id?: string
+          vendor_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_sheet_layouts_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_sheet_layouts_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendors: {
         Row: {
           created_at: string

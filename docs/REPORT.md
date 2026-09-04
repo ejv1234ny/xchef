@@ -84,3 +84,16 @@ Each run appends a per-item table to `docs/validation/phase1.md` with three colu
 - Invoice fixture expected JSON + replay + spreadsheet import against the database: same two secrets.
 - Postmark test email: no sending client or server token; webhook secret unset on Vercel.
 - `supabase db pull`: Supabase CLI not logged in (needs `npx supabase login` in a browser); migrations were applied and mirrored by hand instead.
+
+## 7. Spreadsheet intake (added 2026-09-04)
+
+`.csv .tsv .xlsx .xls` (≤ 5 MB) are accepted everywhere a PDF or photo is: the upload button on `/invoices`, `/api/intake/upload`, and Postmark attachments. `lib/jobs/parseSpreadsheet.ts` replaces the LLM parse for these: header-row detection → column map → `invoice_lines` written directly → one `invoice_documents` row per (invoice number, date) group (extra groups become sibling documents pointing at the same stored file) → the unchanged map → post jobs. Column maps come from, in order: a saved `vendor_sheet_layouts` row (migration 0006, keyed by a sha256 fingerprint of the normalized header) → a known layout in `lib/core/sheets.ts` → Haiku once (`sheet-map`, logged in `llm_calls`) → header-synonym heuristic. The review screen renders the source rows with a role `<select>` per column; saving stores a human-confirmed layout and re-parses.
+
+| layout | how mapped |
+|---|---|
+| Restaurant Depot receipt transcription (`Description · Item Code · Pack / Detail · Units · Amount`, Transaction/tallies rows above) | deterministic (`KNOWN_LAYOUTS`) |
+| Restaurant Depot items-by-category export | deterministic (`KNOWN_LAYOUTS`) |
+| Sysco / US Foods / PFG order-guide and invoice exports | AI-mapped once per header, then remembered; promote to `KNOWN_LAYOUTS` when real samples arrive |
+| anything else | AI-mapped once (Haiku), heuristic fallback when the API is unavailable |
+
+Verified with `pnpm invoices:replay` over the four committed synthetic fixtures (known layout, unknown layout, multi-invoice sheet, totals rows): all posted; the multi-invoice sheet produced two documents; `Subtotal / Sales Tax / Total` rows were skipped at parse time and the fuel-surcharge line was ignored by mapping. `lib/core/sheets.test.ts` covers the same four cases plus cell parsers (13 tests).

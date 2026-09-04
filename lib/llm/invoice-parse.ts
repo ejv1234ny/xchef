@@ -121,6 +121,10 @@ export function normalizeMime(mimeType: string, filename: string): string {
     heif: "image/heif",
     txt: "text/plain",
     json: "application/json",
+    csv: "text/csv",
+    tsv: "text/tab-separated-values",
+    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    xls: "application/vnd.ms-excel",
   };
   return byExt[ext] ?? m;
 }

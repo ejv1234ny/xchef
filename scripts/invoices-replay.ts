@@ -16,7 +16,7 @@ import { createInvoiceDocument, runInvoicePipeline } from "@/lib/jobs/intake";
 import { normalizeMime } from "@/lib/llm/invoice-parse";
 import { isAnthropicConfigured } from "@/lib/llm/anthropic";
 
-const EXTS = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp"]);
+const EXTS = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp", ".csv", ".tsv", ".xlsx", ".xls"]);
 
 async function main() {
   const dir = path.resolve(process.cwd(), arg("dir") ?? "fixtures/invoices");
@@ -24,7 +24,7 @@ async function main() {
     .filter((f) => EXTS.has(path.extname(f).toLowerCase()) && statSync(path.join(dir, f)).isFile())
     .sort();
   if (files.length === 0) {
-    console.log(`No PDF/JPG/PNG files in ${dir}`);
+    console.log(`No PDF/JPG/PNG/CSV/XLSX files in ${dir}`);
     return;
   }
   if (!isAnthropicConfigured()) console.log("ANTHROPIC_API_KEY not set: documents will be stored as 'received' and not parsed.");
@@ -50,7 +50,7 @@ async function main() {
       const bytes = new Uint8Array(readFileSync(file));
       const created = await createInvoiceDocument(svc, { locationId, source: "upload", bytes, mimeType: normalizeMime("", f), filename: f });
       const r = await runInvoicePipeline(svc, created.documentId, { log, reparse: hasFlag("reparse") });
-      rows.push({ file: f, duplicate: created.duplicate, status: r.status, lines: r.lines, mapped: r.mapped, unmapped: r.unmapped, ms: Date.now() - t0, id: created.documentId.slice(0, 8) });
+      rows.push({ file: f, duplicate: created.duplicate, status: r.status, lines: r.lines, mapped: r.mapped, unmapped: r.unmapped, siblings: r.siblings ?? 0, ms: Date.now() - t0, id: created.documentId.slice(0, 8) });
     } catch (e) {
       rows.push({ file: f, status: "ERROR", error: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 });
     }

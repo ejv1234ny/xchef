@@ -13,20 +13,39 @@ import type { ServiceClient } from "@/lib/db/service";
  */
 export const INVOICES_BUCKET = "invoices";
 export const INVOICE_MAX_BYTES = 25 * 1024 * 1024;
-export const INVOICE_ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", "text/plain", "application/json"] as const;
+/** Spreadsheet invoices (csv/tsv/xlsx/xls) are capped lower: a 5 MB export is already tens of thousands of rows. */
+export const SPREADSHEET_MAX_BYTES = 5 * 1024 * 1024;
+export const SPREADSHEET_MIME = [
+  "text/csv",
+  "text/tab-separated-values",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+] as const;
+export const INVOICE_ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp", "text/plain", "application/json", ...SPREADSHEET_MIME] as const;
+
+export function isSpreadsheetMime(mimeType: string): boolean {
+  return (SPREADSHEET_MIME as readonly string[]).includes(mimeType.toLowerCase().split(";")[0].trim());
+}
+
+/** Size cap by type: spreadsheets 5 MB, everything else 25 MB. */
+export function maxBytesFor(mimeType: string): number {
+  return isSpreadsheetMime(mimeType) ? SPREADSHEET_MAX_BYTES : INVOICE_MAX_BYTES;
+}
 
 let ensured = false;
 
 /** Create the private bucket once (idempotent; "already exists" is not an error). */
 export async function ensureInvoicesBucket(svc: ServiceClient): Promise<void> {
   if (ensured) return;
-  const { error } = await svc.storage.createBucket(INVOICES_BUCKET, {
-    public: false,
-    fileSizeLimit: INVOICE_MAX_BYTES,
-    allowedMimeTypes: [...INVOICE_ALLOWED_MIME],
-  });
-  if (error && !/already exists|duplicate|409/i.test(`${error.message} ${"statusCode" in error ? String(error.statusCode) : ""}`)) {
-    throw new Error(`createBucket ${INVOICES_BUCKET}: ${error.message}`);
+  const options = { public: false, fileSizeLimit: INVOICE_MAX_BYTES, allowedMimeTypes: [...INVOICE_ALLOWED_MIME] };
+  const { error } = await svc.storage.createBucket(INVOICES_BUCKET, options);
+  if (error) {
+    if (!/already exists|duplicate|409/i.test(`${error.message} ${"statusCode" in error ? String(error.statusCode) : ""}`)) {
+      throw new Error(`createBucket ${INVOICES_BUCKET}: ${error.message}`);
+    }
+    // Bucket exists: keep its allowed MIME list in sync with this file (spreadsheets were added later).
+    const { error: uerr } = await svc.storage.updateBucket(INVOICES_BUCKET, options);
+    if (uerr) throw new Error(`updateBucket ${INVOICES_BUCKET}: ${uerr.message}`);
   }
   ensured = true;
 }
@@ -76,6 +95,10 @@ export function extForMime(mimeType: string, filename?: string): string {
     "image/gif": "gif",
     "text/plain": "txt",
     "application/json": "json",
+    "text/csv": "csv",
+    "text/tab-separated-values": "tsv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel": "xls",
   };
   if (map[m]) return map[m];
   const ext = filename?.toLowerCase().split(".").pop();

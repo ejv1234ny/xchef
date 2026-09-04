@@ -2,8 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Database, Json } from "@/lib/db/types";
-import { ensureInvoicesBucket, extForMime, INVOICES_BUCKET, invoiceStoragePath } from "@/lib/storage";
+import { ensureInvoicesBucket, extForMime, INVOICES_BUCKET, invoiceStoragePath, maxBytesFor } from "@/lib/storage";
+import { isSpreadsheet } from "@/lib/core/sheets";
 import { parseInvoiceDocumentJob } from "./parseInvoice";
+import { parseSpreadsheetDocumentJob } from "./parseSpreadsheet";
 import { mapInvoiceDocument } from "./mapInvoice";
 import { postInvoiceIfResolved } from "./postInvoice";
 
@@ -101,6 +103,8 @@ export async function createInvoiceDocument(svc: ServiceClient, input: IntakeInp
   const text = input.text ?? "";
   const bytes = input.bytes && input.bytes.byteLength > 0 ? input.bytes : new Uint8Array(Buffer.from(text, "utf8"));
   if (bytes.byteLength === 0) throw new Error("empty document");
+  const cap = maxBytesFor(input.mimeType);
+  if (bytes.byteLength > cap) throw new Error(`${input.filename}: ${(bytes.byteLength / 1048576).toFixed(1)} MB exceeds the ${cap / 1048576} MB limit for this type`);
   const hash = sha256(bytes);
 
   const { data: dupe, error: derr } = await svc
@@ -245,7 +249,7 @@ export async function createManualInvoiceDocument(svc: ServiceClient, input: Man
   return { ...created, vendorId: vendor.id };
 }
 
-export type PipelineResult = { status: string; lines: number; mapped: number; unmapped: number };
+export type PipelineResult = { status: string; lines: number; mapped: number; unmapped: number; /** extra invoice_documents created from a multi-invoice spreadsheet */ siblings?: number };
 
 /**
  * parse (unless source is manual or lines already exist) → map → post.
@@ -255,7 +259,7 @@ export type PipelineResult = { status: string; lines: number; mapped: number; un
  */
 export async function runInvoicePipeline(svc: ServiceClient, documentId: string, opts: { log?: Logger; reparse?: boolean } = {}): Promise<PipelineResult> {
   const log = opts.log ?? (() => {});
-  const { data: doc, error } = await svc.from("invoice_documents").select("id, source, status").eq("id", documentId).maybeSingle();
+  const { data: doc, error } = await svc.from("invoice_documents").select("id, source, status, storage_path").eq("id", documentId).maybeSingle();
   if (error) throw new Error(`read invoice_documents: ${error.message}`);
   if (!doc) throw new Error(`document ${documentId} not found`);
 
@@ -276,18 +280,37 @@ export async function runInvoicePipeline(svc: ServiceClient, documentId: string,
     return counts();
   }
 
+  const filename = doc.storage_path.split("/").pop() ?? doc.storage_path;
+  const spreadsheet = doc.source !== "manual" && isSpreadsheet("", filename);
+  let siblings: string[] = [];
+
   if (doc.source !== "manual") {
     const { count } = await svc.from("invoice_lines").select("id", { count: "exact", head: true }).eq("invoice_id", documentId);
     if (opts.reparse || !count) {
-      const parsed = await parseInvoiceDocumentJob(svc, documentId, { log });
-      log("invoice-pipeline: parsed", { documentId, ...parsed });
-      if (parsed.status === "rejected" || parsed.status === "received") return counts();
+      if (spreadsheet) {
+        // Deterministic sheet parse (lib/jobs/parseSpreadsheet.ts); may split one file into several invoices.
+        const parsed = await parseSpreadsheetDocumentJob(svc, documentId, { log });
+        log("invoice-pipeline: parsed spreadsheet", { documentId, ...parsed });
+        siblings = parsed.documents.filter((d) => d !== documentId);
+        if (parsed.status === "rejected") return counts();
+      } else {
+        const parsed = await parseInvoiceDocumentJob(svc, documentId, { log });
+        log("invoice-pipeline: parsed", { documentId, ...parsed });
+        if (parsed.status === "rejected" || parsed.status === "received") return counts();
+      }
+    } else if (spreadsheet) {
+      const { data: d } = await svc.from("invoice_documents").select("raw_extraction").eq("id", documentId).single();
+      const ex = d?.raw_extraction as { sibling_document_ids?: string[] } | null;
+      siblings = Array.isArray(ex?.sibling_document_ids) ? ex.sibling_document_ids : [];
     }
   }
 
-  const mapped = await mapInvoiceDocument(svc, documentId, { log });
-  log("invoice-pipeline: mapped", { documentId, ...mapped });
-  const posted = await postInvoiceIfResolved(svc, documentId);
-  log("invoice-pipeline: post", { documentId, result: posted });
-  return counts();
+  for (const id of [documentId, ...siblings]) {
+    const mapped = await mapInvoiceDocument(svc, id, { log });
+    log("invoice-pipeline: mapped", { documentId: id, ...mapped });
+    const posted = await postInvoiceIfResolved(svc, id);
+    log("invoice-pipeline: post", { documentId: id, result: posted });
+  }
+  const result = await counts();
+  return siblings.length ? { ...result, siblings: siblings.length } : result;
 }

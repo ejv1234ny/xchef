@@ -103,6 +103,7 @@ Use Toast's own `businessDate`, never the calendar date of `openedDate` — it a
 | Vendor bills the inbound address directly | `email` | Postmark webhook (below). Zero effort once the vendor's billing email is changed. |
 | Operator forwards an email | `forward` | Same webhook; detected by `Fwd:` subject / forwarded headers, original sender recovered for vendor attribution. |
 | Scan, photo, or pasted text | `upload` / `paste` | App: drag-drop or phone camera → Storage; pasted text is wrapped as a text document and parsed the same way. |
+| Spreadsheet export (`.csv .tsv .xlsx .xls`, ≤ 5 MB) — emailed, forwarded or uploaded | `email` / `forward` / `upload` | Same channels as PDFs. No LLM parse: `lib/jobs/parseSpreadsheet.ts` finds the header row, maps columns (known layout → saved `vendor_sheet_layouts` → Haiku once → header synonyms), writes `invoice_lines` directly, one document per (invoice number, date) group, then map → post. The review screen shows the source rows with editable column roles. |
 | Manual intake | `manual` | App form: vendor, date, lines. Skips parsing; goes straight to mapping. For the vendor that only leaves a paper slip. |
 
 **Address.** `invoices-<slug>@in.<domain>` per location (`locations.inbound_email_slug`). Postmark routes `*@in.<domain>` to `POST https://worker.<railway>/inbound/postmark`, authenticated with a basic-auth secret in the URL plus Postmark's IP allowlist. (Simple build: Postmark's default inbound address posts to the Next.js route `/api/inbound/postmark/[secret]` — see CLAUDE.md.)

@@ -1,0 +1,12 @@
+Mad Moose Bar and Grill
+
+Transaction,C16 I99001 OP1  08-20-26 10:12
+Account,0000123
+Receipt tallies,"Subtotal $271.76 · VT Tax $0.00 · Total $271.76"
+Note: synthetic fixture for tests
+Description,Item Code,Pack / Detail,Units,Amount
+KETCHUP 3/114OZ,RD-8891,"C · 1cs/3u",2,$134.38
+KETCHUP 3/114OZ,RD-8891,"C · 1cs/3u",2,$134.38
+BOTTLE DEPOSIT,,U,1,$3.00
+Sum of legible line items,,,,$271.76
+Printed receipt total (from scan),,,,$271.76

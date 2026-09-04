@@ -49,3 +49,5 @@ fixtures/invoices/*.png
 fixtures/invoices/*.heic
 fixtures/toast/*.json
 !fixtures/**/.gitkeep
+# real vendor exports stay local; synthetic-*.csv/xlsx fixtures are committed
+fixtures/invoices/Restaurant_Depot*.xlsx

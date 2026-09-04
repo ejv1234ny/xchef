@@ -102,7 +102,7 @@ export function InvoiceUpload({ variant }: { variant: "camera" | "file" }) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*,application/pdf"
+        accept="image/*,application/pdf,.csv,.tsv,.xlsx,.xls,text/csv,text/tab-separated-values,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
         {...(variant === "camera" ? { capture: "environment" as const } : {})}
         className="hidden"
         onChange={onChange}

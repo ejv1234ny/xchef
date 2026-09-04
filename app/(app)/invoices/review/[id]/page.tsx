@@ -6,7 +6,8 @@ import { createServiceSupabase } from "@/lib/db/service";
 import { signedInvoiceUrl } from "@/lib/storage";
 import { Constants, type Tables } from "@/lib/db/types";
 import { fmtDate, fmtMoney, fmtQty, fmtUnitCost, statusChipClass, statusLabel, Chip, Flash } from "@/components/ui-format";
-import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, setVendor } from "./actions";
+import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, setVendor, updateSheetLayout } from "./actions";
+import { isSpreadsheetExtraction, SheetReview } from "@/components/sheet-review";
 
 export const metadata = { title: "Review invoice" };
 
@@ -19,10 +20,11 @@ type Line = Tables<"invoice_lines">;
 type Mapping = Pick<Tables<"vendor_item_mappings">, "id" | "confirmed_at" | "pack_description" | "units_per_pack" | "base_units_per_unit" | "brand">;
 type Item = Pick<Tables<"inventory_items">, "id" | "name" | "base_unit" | "category">;
 
-function fileKind(path: string, source: string): "image" | "pdf" | "none" | "other" {
+function fileKind(path: string, source: string): "image" | "pdf" | "sheet" | "none" | "other" {
   if (source === "manual" || source === "paste") return "none";
   const ext = path.toLowerCase().split(".").pop() ?? "";
   if (ext === "pdf") return "pdf";
+  if (["csv", "tsv", "xlsx", "xls"].includes(ext)) return "sheet";
   if (["jpg", "jpeg", "png", "webp", "gif", "heic", "heif"].includes(ext)) return "image";
   return "other";
 }
@@ -47,9 +49,10 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
     : { data: [] as Mapping[] };
 
   const kind = fileKind(doc.storage_path, doc.source);
+  const sheet = kind === "sheet" && isSpreadsheetExtraction(doc.raw_extraction) ? doc.raw_extraction : null;
   // Service role is used here only to sign a short-lived URL for the private bucket.
   let fileUrl: string | null = null;
-  if (kind !== "none") {
+  if (kind !== "none" && kind !== "sheet") {
     try {
       fileUrl = await signedInvoiceUrl(createServiceSupabase(), doc.storage_path, 600);
     } catch {
@@ -74,7 +77,22 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
       </div>
       <Flash ok={sp.ok} error={sp.error} />
 
-      <details open className="rounded-xl border border-neutral-200 bg-white">
+      {sheet ? (
+        <section className="rounded-xl border border-neutral-200 bg-white p-3">
+          <h2 className="mb-2 text-sm font-medium">Spreadsheet rows</h2>
+          <SheetReview extraction={sheet} documentId={doc.id} action={updateSheetLayout} />
+          {sheet.parent_document_id ? (
+            <p className="mt-2 text-xs text-neutral-500">
+              This invoice was split out of a multi-invoice file.{" "}
+              <Link href={`/invoices/review/${sheet.parent_document_id}`} className="underline">
+                Open the first invoice
+              </Link>{" "}
+              to edit column roles for the whole file.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+      <details open={!sheet} className={sheet ? "hidden" : "rounded-xl border border-neutral-200 bg-white"}>
         <summary className="flex min-h-12 cursor-pointer items-center px-4 text-sm font-medium">Document</summary>
         <div className="h-[40vh] border-t border-neutral-200 bg-neutral-100">
           {kind === "none" ? (

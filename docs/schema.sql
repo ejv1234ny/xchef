@@ -739,3 +739,35 @@ create policy location_isolation on sync_runs for all
 --  raw output. invoice_documents.raw_extraction keeps the parse; this table is
 --  the cost log and the raw store for recipe drafts and SKU matches.
 -- ============================================================================
+
+-- ============================================================================
+--  MIGRATION 0006 (20260904040000_vendor_sheet_layouts.sql, applied)
+--  vendor_sheet_layouts: learned column maps for spreadsheet invoices
+--  (csv/tsv/xlsx/xls). header_fingerprint = sha256 of the normalized header
+--  row; column_map = { "<column index>": role } with roles vendor_sku |
+--  description | pack_size | quantity | unit_price | extended_price |
+--  invoice_number | invoice_date | vendor_name | ignore; source = builtin
+--  (lib/core/sheets.ts KNOWN_LAYOUTS) | ai (Haiku, once per fingerprint) |
+--  heuristic (header synonyms) | human (edited on the review screen).
+--  unique (tenant_id, header_fingerprint) — the same export layout never
+--  asks twice. RLS: tenant_isolation like vendor_item_mappings.
+-- ============================================================================
+create table vendor_sheet_layouts (
+  id                  uuid primary key default gen_random_uuid(),
+  tenant_id           uuid not null references tenants(id) on delete cascade,
+  vendor_id           uuid references vendors(id) on delete set null,
+  header_fingerprint  text not null,
+  header_cells        text[] not null default '{}',
+  column_map          jsonb not null,
+  source              text not null default 'ai',
+  confidence          numeric(3,2),
+  confirmed_by        uuid,
+  confirmed_at        timestamptz,
+  created_at          timestamptz not null default now(),
+  unique (tenant_id, header_fingerprint)
+);
+create index on vendor_sheet_layouts (tenant_id);
+create index on vendor_sheet_layouts (vendor_id);
+alter table vendor_sheet_layouts enable row level security;
+create policy tenant_isolation on vendor_sheet_layouts for all
+  using (tenant_id in (select my_tenant_ids())) with check (tenant_id in (select my_tenant_ids()));
