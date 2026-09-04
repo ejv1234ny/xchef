@@ -19,7 +19,7 @@ Restaurant usage & inventory app that sits beside Toast POS. Toast Orders API (r
 - Claude API via `@anthropic-ai/sdk`: Sonnet for invoice parsing (PDF/image input) and recipe drafting, Haiku for SKU matching. Tool-use schemas, temperature 0, pinned model ids, raw output stored.
 - Scheduling: Vercel Cron hitting route handlers (`/api/cron/toast-sync` every 5 min, `/api/cron/menu-sync` daily). Each run is short and idempotent, so no queue.
 - Invoice parsing runs inline in the upload / inbound route (one document per request, well under the function limit).
-- Inbound email: Postmark Inbound → `/api/inbound/postmark`. Photos and scans come through the app's upload page, so webhook payloads stay small.
+- Inbound email: Postmark Inbound → `/api/inbound/postmark/[secret]`. **Already configured**: Postmark server `xchef-inbound` (ID 20725528) delivers to `https://xchef.vercel.app/api/inbound/postmark/{POSTMARK_INBOUND_SECRET}`; the inbound address is `22714cd05547c0dd0827e942fe3a47ed@inbound.postmarkapp.com` (works today, no custom domain/MX needed — Mad Moose forwards or gives vendors that address; a friendly `invoices@…` alias can be added later). The route reads the secret from the path and compares to env `POSTMARK_INBOUND_SECRET`. Photos and scans come through the app's upload page, so webhook payloads stay small.
 - SKU → ingredient matching: no vector DB. A restaurant has a few hundred inventory items; pass the whole list to Haiku with the invoice line and let it choose, propose new, or mark not-inventory.
 - Tests: Vitest for `lib/core/*` only, from fixtures.
 
@@ -28,7 +28,7 @@ Restaurant usage & inventory app that sits beside Toast POS. Toast Orders API (r
 ```
 app/
   (app)/verify  on-hand  usage  prices  invoices  invoices/review  recipes  menu  settings
-  api/cron/toast-sync  api/cron/menu-sync  api/inbound/postmark  api/intake/{upload,paste,manual}
+  api/cron/toast-sync  api/cron/menu-sync  api/inbound/postmark/[secret]  api/intake/{upload,paste,manual}
 lib/
   toast/      client: login + token cache, ordersBulk pager, menus v2, config
   core/       PURE: flatten.ts, units.ts, packs.ts, resolveMapping.ts  (tests live here)
@@ -37,12 +37,13 @@ lib/
   jobs/       toastSync.ts, menuSync.ts, parseInvoice.ts, mapInvoice.ts, postInvoice.ts  (called by routes)
 supabase/migrations/0001_init.sql   ← docs/schema.sql (ALREADY APPLIED to xchef-dev)
 supabase/migrations/0002_rls.sql    ← RLS policies + security_invoker views (ALREADY APPLIED)
+.mcp.json + scripts/toast-mcp.sh    ← community Toast MCP for dev-time payload inspection
 fixtures/    toast/*.json (real ordersBulk pages), invoices/*.pdf|jpg (gitignored) + expected *.json
 ```
 
 ## Rules that still matter at this size
 
-1. Sales from `GET /orders/v1/ordersBulk` only — not the Analytics API. Menus from `/menus/v2`. Scopes `orders:read menus:read config:read restaurants:read`; never guest PII scopes.
+1. Sales from `GET /orders/v2/ordersBulk` only — not the Analytics API. Menus from `/menus/v2`. Scopes `orders:read menus:read config:read restaurants:read`; never guest PII scopes.
 2. Use Toast `businessDate`. Sync window `last_synced_at − 36h → now`, upsert `toast_orders_raw`, rebuild `sales_facts` for touched business dates in one transaction. ≤ 4 req/s.
 3. `lib/core/flatten.ts`: skip deleted orders/checks; voided → `quantity_voided`; modifiers with their own `item.guid` get their own rows; refunds not subtracted; keep decimal quantities.
 4. Never hardcode a pack size. `lib/core/packs.ts` holds defaults; a size parsed from the invoice overrides it; the owner's edit on `vendor_item_mappings` overrides both; the UI shows the assumed base units per pack on every price row.
@@ -57,7 +58,7 @@ fixtures/    toast/*.json (real ordersBulk pages), invoices/*.pdf|jpg (gitignore
 13. Secrets: Toast client secret in Supabase Vault (read only by the service-role server code). Env: `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `POSTMARK_INBOUND_SECRET`, `CRON_SECRET`.
 14. RLS on with the pattern in schema.sql, one tenant, one membership. Cron and inbound routes use the service-role client and check `CRON_SECRET` / the path secret.
 15. Mobile: 44px minimum tap targets; no hover-only affordances; `<input type="file" accept="image/*,application/pdf" capture="environment">` for invoice photos, client-side resize to ≤ 2000px before upload; HEIC accepted; verify and review screens must work one-handed; Lighthouse PWA installable on iOS Safari and Android Chrome; the verify page loads its top-10 list in < 1 s on 4G (server-render it).
-16. If a Toast MCP server is configured in this Claude Code environment, use it during development to inspect real ordersBulk / menus payloads and to cross-check `pmix` output — but the app itself always talks to Toast through `lib/toast` over HTTPS, never through MCP.
+16. A Toast MCP server is configured in `.mcp.json` (`scripts/toast-mcp.sh` → community read-only server, demo mode until `.env.toast` exists). Use its `toast_find_orders`, `toast_get_order`, `toast_search_menu` tools during development to inspect real payloads and cross-check `pmix` output. It is unofficial and "live-unverified" — treat its output as a convenience, not truth; the app itself always talks to Toast through `lib/toast` over HTTPS (`/orders/v2/ordersBulk`, `/menus/v2/menus`), never through MCP.
 
 ## Definition of done
 
