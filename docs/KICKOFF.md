@@ -71,7 +71,7 @@ Read CLAUDE.md, AGENTS.md, and docs/architecture.md §4 (all subsections) before
 Build the whole app described in CLAUDE.md, in this order, stopping ONLY at the two gates marked STOP. Do not ask questions you can answer by choosing the simplest option and noting it in a commit message.
 
 PHASE 1 — sales truth
-- The schema (supabase/migrations/0001_init.sql) and RLS (0002_rls.sql) are ALREADY APPLIED to the linked Supabase project. Do not re-apply. Run `supabase db pull` to sync, then generate lib/db/types.ts.
+- The schema (supabase/migrations/20260904002855_init.sql) and RLS (20260904002929_rls.sql) are ALREADY APPLIED to the linked Supabase project. Do not re-apply. Run `supabase db pull` to sync, then generate lib/db/types.ts.
 - lib/db: browser, server (user cookie), and service-role clients.
 - Auth (Supabase magic link) + first-login bootstrap (tenant "Mad Moose", one location, my membership — inserted with the service-role client since RLS blocks a user with no membership) + Settings (timezone, Toast location GUID, Toast client id/secret stored to Supabase Vault via server action; secret never returned). Also `pnpm creds` CLI that prompts for the three values and stores them.
 - lib/toast: login with token cache (expiresIn−60s), Toast-Restaurant-External-ID header, ordersBulk async iterator (pageSize 100, follow Link header, 4 req/s), menus v2 (menus, metadata), config lookups. Zod at the boundary; quarantine invalid orders.

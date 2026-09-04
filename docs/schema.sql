@@ -1,7 +1,7 @@
 -- ============================================================================
 --  xchef — Usage-Tracking Schema (Supabase / Postgres) — ANNOTATED
---  The exact SQL applied to xchef-dev lives in supabase/migrations/0001_init.sql
---  (identical DDL, comments stripped) and 0002_rls.sql. Edit here, then cut a
+--  The exact SQL applied to xchef-dev lives in supabase/migrations/20260904002855_init.sql
+--  (identical DDL, comments stripped) and 20260904002929_rls.sql. Edit here, then cut a
 --  new migration; never re-run 0001.
 --
 --  Focus: theoretical USAGE from sales × recipe, receiving via AI-parsed
@@ -688,7 +688,54 @@ select
 from base b;
 
 -- ----------------------------------------------------------------------------
---  ROW-LEVEL SECURITY: see supabase/migrations/0002_rls.sql (applied).
+--  ROW-LEVEL SECURITY: see supabase/migrations/20260904002929_rls.sql (applied).
 --  Every table is scoped to the caller's memberships; views run as invoker.
 --  Cron and inbound routes use the service-role key and bypass RLS.
 -- ----------------------------------------------------------------------------
+
+-- ============================================================================
+--  MIGRATION 0003 (supabase/migrations/20260904010000_sync_runs.sql, applied)
+--  sync_runs: one row per Toast sync / backfill / menu-sync execution, so the
+--  Settings page and the report can show "last sync 4 min ago, 312 orders,
+--  3 business dates rebuilt" without a job dashboard.
+-- ============================================================================
+create table sync_runs (
+  id                 uuid primary key default gen_random_uuid(),
+  location_id        uuid not null references locations(id) on delete cascade,
+  kind               text not null default 'toast-sync',   -- 'toast-sync' | 'toast-backfill' | 'menu-sync'
+  window_start       timestamptz,
+  window_end         timestamptz,
+  orders_fetched     int  not null default 0,
+  orders_upserted    int  not null default 0,
+  orders_quarantined int  not null default 0,               -- failed zod validation; logged and skipped
+  dates_rebuilt      date[] not null default '{}',
+  duration_ms        int,
+  error              text,
+  created_at         timestamptz not null default now()
+);
+create index on sync_runs (location_id, created_at desc);
+alter table sync_runs enable row level security;
+create policy location_isolation on sync_runs for all
+  using (location_id in (select my_location_ids())) with check (location_id in (select my_location_ids()));
+
+-- Toast client secret lives in Supabase Vault. toast_credentials.client_secret_encrypted
+-- stores the vault secret's uuid, never the secret. A tenant member may SET the
+-- credentials for their own location (server action); only the service role may
+-- READ the secret back (cron route), so the browser never sees it.
+--   set_toast_credentials(location_id, client_id, client_secret)  -> void
+--   get_toast_client_secret(location_id)                          -> text  (service_role only)
+
+-- ============================================================================
+--  MIGRATION 0004 (20260904020000_replace_sales_facts.sql, applied)
+--  replace_sales_facts(location_id, dates[], rows jsonb) -> int
+--    Atomic delete+insert of sales_facts for exactly those business dates;
+--    links menu_item_id by toast_menu_item_guid. One RPC == one transaction.
+--  relink_sales_facts(location_id) -> int
+--    After a menu sync, fills menu_item_id on older sales_facts rows.
+--  Both are service_role only.
+--
+--  MIGRATION 0005 (20260904030000_llm_calls.sql, applied)
+--  llm_calls: one row per Claude call — kind, ref_id, model, tokens, cost_usd,
+--  raw output. invoice_documents.raw_extraction keeps the parse; this table is
+--  the cost log and the raw store for recipe drafts and SKU matches.
+-- ============================================================================

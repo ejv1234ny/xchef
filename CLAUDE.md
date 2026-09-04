@@ -35,8 +35,8 @@ lib/
   llm/        invoice-parse.ts, recipe-draft.ts, sku-match.ts  (schemas + prompts)
   db/         supabase clients (browser, server, service-role), typed helpers, generated types
   jobs/       toastSync.ts, menuSync.ts, parseInvoice.ts, mapInvoice.ts, postInvoice.ts  (called by routes)
-supabase/migrations/0001_init.sql   ← docs/schema.sql (ALREADY APPLIED to xchef-dev)
-supabase/migrations/0002_rls.sql    ← RLS policies + security_invoker views (ALREADY APPLIED)
+supabase/migrations/20260904002855_init.sql   ← docs/schema.sql (ALREADY APPLIED to xchef-dev)
+supabase/migrations/20260904002929_rls.sql    ← RLS policies + security_invoker views (ALREADY APPLIED)
 .mcp.json + scripts/toast-mcp.sh    ← community Toast MCP for dev-time payload inspection
 fixtures/    toast/*.json (real ordersBulk pages), invoices/*.pdf|jpg (gitignored) + expected *.json
 ```

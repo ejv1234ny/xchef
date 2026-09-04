@@ -170,7 +170,7 @@ Daily 7 a.m. digest per location (email now, SMS later): items to reorder, invoi
 
 ## 5. Security and tenancy
 
-- RLS on every tenant/location table exactly as `supabase/migrations/0002_rls.sql`; the web app only ever uses the anon key + user JWT.
+- RLS on every tenant/location table exactly as `supabase/migrations/20260904002929_rls.sql`; the web app only ever uses the anon key + user JWT.
 - Worker uses the service-role key and is the only thing that touches `toast_credentials` and Vault.
 - Request only the scopes needed: `orders:read`, `menus:read`, `config:read`, `restaurants:read`. Do **not** request `guest.pi:read` or `delivery_info.address:read` — we don't want guest PII in our database.
 - Invoice files are private Storage objects served via short-lived signed URLs.

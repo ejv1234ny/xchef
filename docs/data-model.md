@@ -54,7 +54,7 @@ Recipes are normally authored in each ingredient's `base_unit` (oz for tequila, 
 
 ## Multi-tenancy & Toast credentials
 
-One management group = one `tenant`, with one or more `locations`. Toast **Standard API access** (RMS Essentials tier; ~$50/mo standalone) is **read-only and location-specific** with 13 `*:read` scopes; we need `orders:read`, `menus:read`, `config:read`, `restaurants:read`. Each location stores its own credential set in `toast_credentials` (customer self-generates in Toast Web → Integrations → Toast API access; no partner approval needed). Sync jobs loop per location, sending `Toast-Restaurant-External-ID`. The Analytics API (`/era`) is a separate credential on RMS Pro and is **not** used. Row-level security isolates every tenant via the `memberships` table; see `supabase/migrations/0002_rls.sql`.
+One management group = one `tenant`, with one or more `locations`. Toast **Standard API access** (RMS Essentials tier; ~$50/mo standalone) is **read-only and location-specific** with 13 `*:read` scopes; we need `orders:read`, `menus:read`, `config:read`, `restaurants:read`. Each location stores its own credential set in `toast_credentials` (customer self-generates in Toast Web → Integrations → Toast API access; no partner approval needed). Sync jobs loop per location, sending `Toast-Restaurant-External-ID`. The Analytics API (`/era`) is a separate credential on RMS Pro and is **not** used. Row-level security isolates every tenant via the `memberships` table; see `supabase/migrations/20260904002929_rls.sql`.
 
 ## Cost optionality
 
