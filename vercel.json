@@ -1,0 +1,6 @@
+{
+  "crons": [
+    { "path": "/api/cron/toast-sync", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/menu-sync", "schedule": "0 9 * * *" }
+  ]
+}
