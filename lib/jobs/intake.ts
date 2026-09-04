@@ -314,9 +314,11 @@ export async function runInvoicePipeline(svc: ServiceClient, documentId: string,
       } else {
         const parsed = await parseInvoiceDocumentJob(svc, documentId, { log });
         log("invoice-pipeline: parsed", { documentId, ...parsed });
+        if (parsed.status === "deleted") return { status: "deleted", lines: 0, mapped: 0, unmapped: 0, siblings: 0 };
+        siblings = parsed.documents.filter((d) => d !== documentId);
         if (parsed.status === "rejected" || parsed.status === "received") return counts();
       }
-    } else if (spreadsheet) {
+    } else {
       const { data: d } = await svc.from("invoice_documents").select("raw_extraction").eq("id", documentId).single();
       const ex = d?.raw_extraction as { sibling_document_ids?: string[] } | null;
       siblings = Array.isArray(ex?.sibling_document_ids) ? ex.sibling_document_ids : [];

@@ -61,3 +61,100 @@ export async function heicToJpeg(bytes: Uint8Array, quality = 0.85): Promise<Uin
     return null;
   }
 }
+
+export type RenderedImage = { bytes: Uint8Array; mimeType: "image/jpeg"; name: string };
+
+async function loadPdf(bytes: Uint8Array) {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  try {
+    const { createRequire } = await import("node:module");
+    const { pathToFileURL } = await import("node:url");
+    const req = createRequire(`${process.cwd()}/`);
+    pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
+  } catch {
+    /* pdfjs resolves its own worker */
+  }
+  const task = pdfjs.getDocument({ data: new Uint8Array(bytes), disableFontFace: true, useSystemFonts: true, verbosity: 0 });
+  const doc = await task.promise;
+  return { doc, task };
+}
+
+/** Characters of extractable text on the first pages; ~0 means a scan (image-only) PDF. */
+export async function pdfTextLength(bytes: Uint8Array, maxPages = 3): Promise<{ pages: number; textChars: number }> {
+  try {
+    const { doc, task } = await loadPdf(bytes);
+    try {
+      let chars = 0;
+      for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
+        const page = await doc.getPage(p);
+        const content = await page.getTextContent();
+        chars += content.items.reduce((a, it) => a + ("str" in it ? it.str.trim().length : 0), 0);
+      }
+      return { pages: doc.numPages, textChars: chars };
+    } finally {
+      await task.destroy();
+    }
+  } catch {
+    return { pages: 0, textChars: 0 };
+  }
+}
+
+/**
+ * Render pages (and optional quadrant crops of each page) as JPEGs for vision
+ * models. Scans of receipts are tall and narrow; the whole page gets
+ * downsampled by the API, so crops keep receipt-sized print legible.
+ */
+export async function renderPdfImages(
+  bytes: Uint8Array,
+  opts: { maxPages?: number; pageWidth?: number; crops?: { cols: number; rows: number; width: number } | null; quality?: number } = {},
+): Promise<RenderedImage[]> {
+  const maxPages = opts.maxPages ?? 3;
+  const pageWidth = opts.pageWidth ?? 1600;
+  const quality = opts.quality ?? 0.85;
+  const out: RenderedImage[] = [];
+  try {
+    const { doc, task } = await loadPdf(bytes);
+    const { createCanvas } = await import("@napi-rs/canvas");
+    try {
+      for (let p = 1; p <= Math.min(doc.numPages, maxPages); p++) {
+        const page = await doc.getPage(p);
+        const base = page.getViewport({ scale: 1 });
+        const scale = Math.min(3, pageWidth / base.width);
+        const viewport = page.getViewport({ scale });
+        const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+        const ctx = canvas.getContext("2d");
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await page.render({ canvasContext: ctx as unknown as CanvasRenderingContext2D, viewport, canvas: canvas as unknown as HTMLCanvasElement }).promise;
+        out.push({ bytes: new Uint8Array(canvas.toBuffer("image/jpeg", quality)), mimeType: "image/jpeg", name: `page-${p}.jpg` });
+        if (opts.crops) {
+          const { cols, rows, width } = opts.crops;
+          const cropScale = Math.min(4, (width * cols) / base.width);
+          const vp = page.getViewport({ scale: cropScale });
+          const big = createCanvas(Math.ceil(vp.width), Math.ceil(vp.height));
+          const bctx = big.getContext("2d");
+          bctx.fillStyle = "#ffffff";
+          bctx.fillRect(0, 0, big.width, big.height);
+          await page.render({ canvasContext: bctx as unknown as CanvasRenderingContext2D, viewport: vp, canvas: big as unknown as HTMLCanvasElement }).promise;
+          const cw = Math.ceil(big.width / cols);
+          const ch = Math.ceil(big.height / rows);
+          for (let c = 0; c < cols; c++) {
+            for (let r = 0; r < rows; r++) {
+              const crop = createCanvas(cw, ch);
+              crop.getContext("2d").drawImage(big, c * cw, r * ch, cw, ch, 0, 0, cw, ch);
+              const col = cols === 1 ? "" : c === 0 ? "left" : c === cols - 1 ? "right" : `col${c + 1}`;
+              const row = rows === 1 ? "" : r === 0 ? "top" : r === rows - 1 ? "bottom" : `row${r + 1}`;
+              out.push({ bytes: new Uint8Array(crop.toBuffer("image/jpeg", quality)), mimeType: "image/jpeg", name: `page-${p}-${[col, row].filter(Boolean).join("-") || "full"}.jpg` });
+            }
+          }
+        }
+      }
+    } finally {
+      await task.destroy();
+    }
+  } catch (e) {
+    console.warn(JSON.stringify({ msg: "pdf-render: failed", error: e instanceof Error ? e.message : String(e) }));
+  }
+  return out;
+}

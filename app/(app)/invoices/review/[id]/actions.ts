@@ -10,6 +10,8 @@ import { mapInvoiceDocument, postInvoiceIfResolved } from "@/lib/jobs/mapInvoice
 import { runInvoicePipeline } from "@/lib/jobs/intake";
 import { saveHumanSheetLayout, type SpreadsheetExtraction } from "@/lib/jobs/parseSpreadsheet";
 import { COLUMN_ROLES, type ColumnMap, type ColumnRole } from "@/lib/core/sheets";
+import { BOTTLE_SIZE_CHOICES } from "@/lib/core/liquor";
+import { parsePackSize } from "@/lib/core/packs";
 import { Constants } from "@/lib/db/types";
 
 const uuid = z.uuid();
@@ -340,4 +342,42 @@ export async function retryParse(formData: FormData) {
   } catch (e) {
     back(documentId, "error", e instanceof Error ? e.message : String(e));
   }
+}
+
+/**
+ * Retail liquor: fix an (assumed) bottle size in one tap. Updates the line's
+ * pack size, the vendor mapping's base units when the line already has one,
+ * then re-runs mapping so quantity_base_unit / cost_per_base_unit follow.
+ */
+export async function setLineSize(formData: FormData) {
+  const ctx = await getAppContext();
+  const documentId = uuid.safeParse(field(formData, "document_id")).data;
+  const lineId = uuid.safeParse(field(formData, "line_id")).data;
+  const size = field(formData, "size");
+  if (!documentId || !lineId) redirect("/invoices?error=Bad%20request");
+  if (!size || !(BOTTLE_SIZE_CHOICES as readonly string[]).includes(size)) back(documentId, "error", "Pick a size");
+  const doc = await loadDocument(documentId, ctx.location.id);
+  if (!doc) back(documentId, "error", "Invoice not found");
+  const supabase = await createServerSupabase();
+  const { data: line } = await supabase.from("invoice_lines").select("id, mapping_id, description, status").eq("id", lineId).eq("invoice_id", documentId).maybeSingle();
+  if (!line) back(documentId, "error", "Line not found");
+  const { error } = await supabase.from("invoice_lines").update({ pack_size_text: size, pack_size_assumed: false }).eq("id", lineId);
+  if (error) back(documentId, "error", error.message);
+  if (line.mapping_id) {
+    const parsed = parsePackSize(size, "oz");
+    if (parsed.base_units_per_unit) {
+      await supabase
+        .from("vendor_item_mappings")
+        .update({ units_per_pack: Number(parsed.units_per_pack), base_units_per_unit: Number(parsed.base_units_per_unit), pack_description: size })
+        .eq("id", line.mapping_id);
+    }
+  }
+  let tail = "";
+  try {
+    tail = await mapAndPost(documentId);
+  } catch (e) {
+    back(documentId, "error", e instanceof Error ? e.message : String(e));
+  }
+  refresh(documentId);
+  back(documentId, "ok", `${line.description}: size set to ${size}. ${tail}`);
 }

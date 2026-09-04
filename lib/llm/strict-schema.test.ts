@@ -46,20 +46,30 @@ describe("zod → OpenAI strict JSON schema", () => {
   it("invoice parse output with nulls for absent optionals round-trips through the real schema", () => {
     const { optionalPaths } = toStrictJsonSchema(InvoiceParseSchema);
     const out = {
-      is_invoice: false,
-      document_kind: "statement",
-      vendor_name: "PFG",
-      invoice_number: null,
-      invoice_date: null,
-      received_date: null,
-      subtotal: null,
-      tax: null,
-      total: null,
-      currency: "USD",
-      lines: [],
-      overall_confidence: 0.9,
+      documents: [
+        {
+          is_invoice: false,
+          document_kind: "statement",
+          vendor_name: "PFG",
+          receipt_id: null,
+          transaction_code: null,
+          invoice_number: null,
+          invoice_date: null,
+          invoice_time: null,
+          received_date: null,
+          subtotal: null,
+          tax: null,
+          total: null,
+          currency: "USD",
+          printed_item_count: null,
+          region: null,
+          lines: [],
+          confidence: 0.9,
+        },
+      ],
+      page_notes: null,
     };
     const parsed = InvoiceParseSchema.parse(stripOptionalNulls(out, optionalPaths));
-    expect(parsed.document_kind).toBe("statement");
+    expect(parsed.documents[0].document_kind).toBe("statement");
   });
 });

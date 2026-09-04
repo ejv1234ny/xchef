@@ -146,11 +146,14 @@ export type Database = {
           id: string
           invoice_date: string | null
           invoice_number: string | null
+          invoice_time: string | null
           location_id: string
           parse_confidence: number | null
           parse_error: string | null
           posted_at: string | null
+          printed_item_count: number | null
           raw_extraction: Json | null
+          receipt_id: string | null
           received_date: string | null
           source: Database["public"]["Enums"]["invoice_source"]
           status: Database["public"]["Enums"]["invoice_status"]
@@ -158,6 +161,7 @@ export type Database = {
           subtotal: number | null
           tax: number | null
           total: number | null
+          transaction_code: string | null
           vendor_id: string | null
         }
         Insert: {
@@ -169,11 +173,14 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          invoice_time?: string | null
           location_id: string
           parse_confidence?: number | null
           parse_error?: string | null
           posted_at?: string | null
+          printed_item_count?: number | null
           raw_extraction?: Json | null
+          receipt_id?: string | null
           received_date?: string | null
           source?: Database["public"]["Enums"]["invoice_source"]
           status?: Database["public"]["Enums"]["invoice_status"]
@@ -181,6 +188,7 @@ export type Database = {
           subtotal?: number | null
           tax?: number | null
           total?: number | null
+          transaction_code?: string | null
           vendor_id?: string | null
         }
         Update: {
@@ -192,11 +200,14 @@ export type Database = {
           id?: string
           invoice_date?: string | null
           invoice_number?: string | null
+          invoice_time?: string | null
           location_id?: string
           parse_confidence?: number | null
           parse_error?: string | null
           posted_at?: string | null
+          printed_item_count?: number | null
           raw_extraction?: Json | null
+          receipt_id?: string | null
           received_date?: string | null
           source?: Database["public"]["Enums"]["invoice_source"]
           status?: Database["public"]["Enums"]["invoice_status"]
@@ -204,6 +215,7 @@ export type Database = {
           subtotal?: number | null
           tax?: number | null
           total?: number | null
+          transaction_code?: string | null
           vendor_id?: string | null
         }
         Relationships: [
@@ -246,17 +258,20 @@ export type Database = {
       }
       invoice_lines: {
         Row: {
+          adjustment: number | null
           ai_category_guess: string | null
           ai_confidence: number | null
           cost_per_base_unit: number | null
           created_at: string
           description: string
           extended_price: number | null
+          gross_price: number | null
           id: string
           inventory_item_id: string | null
           invoice_id: string
           line_no: number
           mapping_id: string | null
+          pack_size_assumed: boolean
           pack_size_text: string | null
           quantity: number
           quantity_base_unit: number | null
@@ -265,17 +280,20 @@ export type Database = {
           vendor_sku: string | null
         }
         Insert: {
+          adjustment?: number | null
           ai_category_guess?: string | null
           ai_confidence?: number | null
           cost_per_base_unit?: number | null
           created_at?: string
           description: string
           extended_price?: number | null
+          gross_price?: number | null
           id?: string
           inventory_item_id?: string | null
           invoice_id: string
           line_no: number
           mapping_id?: string | null
+          pack_size_assumed?: boolean
           pack_size_text?: string | null
           quantity: number
           quantity_base_unit?: number | null
@@ -284,17 +302,20 @@ export type Database = {
           vendor_sku?: string | null
         }
         Update: {
+          adjustment?: number | null
           ai_category_guess?: string | null
           ai_confidence?: number | null
           cost_per_base_unit?: number | null
           created_at?: string
           description?: string
           extended_price?: number | null
+          gross_price?: number | null
           id?: string
           inventory_item_id?: string | null
           invoice_id?: string
           line_no?: number
           mapping_id?: string | null
+          pack_size_assumed?: boolean
           pack_size_text?: string | null
           quantity?: number
           quantity_base_unit?: number | null
@@ -1155,6 +1176,7 @@ export type Database = {
           created_at: string
           email_domains: string[] | null
           id: string
+          kind: string
           name: string
           tenant_id: string
         }
@@ -1162,6 +1184,7 @@ export type Database = {
           created_at?: string
           email_domains?: string[] | null
           id?: string
+          kind?: string
           name: string
           tenant_id: string
         }
@@ -1169,6 +1192,7 @@ export type Database = {
           created_at?: string
           email_domains?: string[] | null
           id?: string
+          kind?: string
           name?: string
           tenant_id?: string
         }

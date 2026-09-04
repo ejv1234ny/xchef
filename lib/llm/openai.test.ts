@@ -28,25 +28,35 @@ function fakeOpenAI(answer: unknown, model = "gpt-4.1") {
 describe("OpenAI provider (Responses API, mocked HTTP)", () => {
   it("invoice-parse: PDF goes as input_file, strict json_schema format, temperature 0, gpt-4.1, cost computed", async () => {
     const answer = {
-      is_invoice: true,
-      document_kind: "invoice",
-      vendor_name: "Sysco",
-      invoice_number: "SY-1",
-      invoice_date: "2026-08-21",
-      received_date: null,
-      subtotal: 125,
-      tax: null,
-      total: 125,
-      currency: "USD",
-      lines: [{ line_no: 1, vendor_sku: "1234567", description: "KETCHUP 6/#10", pack_size_text: "6/#10", quantity: 2, unit_price: 62.5, extended_price: 125, category_guess: "dry", confidence: 0.98 }],
-      overall_confidence: 0.97,
+      documents: [
+        {
+          is_invoice: true,
+          document_kind: "invoice",
+          vendor_name: "Sysco",
+          receipt_id: "SY-1",
+          transaction_code: null,
+          invoice_number: "SY-1",
+          invoice_date: "2026-08-21",
+          invoice_time: null,
+          received_date: null,
+          subtotal: 125,
+          tax: null,
+          total: 125,
+          currency: "USD",
+          printed_item_count: 1,
+          region: "full",
+          lines: [{ line_no: 1, vendor_sku: "1234567", description: "KETCHUP 6/#10", pack_size_text: "6/#10", quantity: 2, unit_price: 62.5, gross_price: 125, adjustment: null, extended_price: 125, category_guess: "dry", confidence: 0.98 }],
+          confidence: 0.97,
+        },
+      ],
+      page_notes: null,
     };
     const { provider, calls } = fakeOpenAI(answer);
     const r = await parseInvoiceDocument({ bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]), mimeType: "application/pdf", filename: "sysco.pdf", vendorHint: "Sysco" }, provider);
     expect(r.provider).toBe("openai");
     expect(r.model).toBe("gpt-4.1");
-    expect(r.data.lines[0].description).toBe("KETCHUP 6/#10");
-    expect(r.data.received_date ?? null).toBeNull();
+    expect(r.data.documents[0].lines[0].description).toBe("KETCHUP 6/#10");
+    expect(r.data.documents[0].received_date ?? null).toBeNull();
     expect(r.usage).toEqual({ input_tokens: 1200, output_tokens: 300, cost_usd: (1200 * 2 + 300 * 8) / 1_000_000 });
 
     expect(calls).toHaveLength(1);
@@ -69,7 +79,7 @@ describe("OpenAI provider (Responses API, mocked HTTP)", () => {
   });
 
   it("invoice-parse: images go as input_image data URLs", async () => {
-    const { provider, calls } = fakeOpenAI({ is_invoice: false, document_kind: "other", vendor_name: "", invoice_number: null, invoice_date: null, received_date: null, subtotal: null, tax: null, total: null, currency: "USD", lines: [], overall_confidence: 0.5 });
+    const { provider, calls } = fakeOpenAI({ documents: [{ is_invoice: false, document_kind: "other", vendor_name: "", receipt_id: null, transaction_code: null, invoice_number: null, invoice_date: null, invoice_time: null, received_date: null, subtotal: null, tax: null, total: null, currency: "USD", printed_item_count: null, region: null, lines: [], confidence: 0.5 }], page_notes: null });
     await parseInvoiceDocument({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg", filename: "IMG_1.jpg" }, provider);
     const parts = (calls[0].body.input as Array<{ content: Array<{ type: string; image_url?: string }> }>)[1].content;
     expect(parts[1].type).toBe("input_image");

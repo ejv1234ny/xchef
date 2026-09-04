@@ -1,0 +1,7 @@
+{
+  "_note": "Two 802 Spirits register receipts scanned side by side. Owner ground truth: left = 12/21/2025, 'Total Sales Quantity 15' (quantity sum; 10 item lines incl. Bailey's ×2 and Triple Sec ×2), subtotal 390.85 after a $3.00 'Offer disc.' under Beefeater Gin; right = 12/19/2025, 7 items, subtotal 203.93. exact_subtotal means Σ extended lines must equal the subtotal to the cent (discounts applied, nothing dropped).",
+  "documents": [
+    { "vendor_name": "802 Spirits", "receipt_id": "201717-1155731", "invoice_date": "2025-12-21", "line_count": 10, "printed_item_count": 15, "subtotal": 390.85, "exact_subtotal": true, "has_adjustments": true },
+    { "vendor_name": "802 Spirits", "receipt_id": "717-1155526", "invoice_date": "2025-12-19", "line_count": 7, "printed_item_count": 7, "subtotal": 203.93, "exact_subtotal": true }
+  ]
+}

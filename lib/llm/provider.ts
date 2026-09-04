@@ -1,6 +1,8 @@
 import type { z } from "zod";
 import { env } from "@/lib/env";
 import type { LlmProviderName, LlmTask } from "./models";
+import { createOpenAIProvider } from "./openai";
+import { createAnthropicProvider } from "./anthropic";
 
 /**
  * Provider-neutral structured-output call. Every LLM feature (invoice parse,
@@ -66,9 +68,7 @@ export function getProvider(): LlmProvider {
   if (override) return override;
   const name = selectedProviderName();
   if (cached?.name === name) return cached.provider;
-  // Lazy requires keep the SDKs out of any bundle that never calls an LLM.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const impl: LlmProvider = name === "openai" ? (require("./openai") as typeof import("./openai")).createOpenAIProvider() : (require("./anthropic") as typeof import("./anthropic")).createAnthropicProvider();
+  const impl: LlmProvider = name === "openai" ? createOpenAIProvider() : createAnthropicProvider();
   cached = { name, provider: impl };
   return impl;
 }

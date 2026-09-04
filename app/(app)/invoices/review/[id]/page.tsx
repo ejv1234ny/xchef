@@ -6,7 +6,8 @@ import { createServiceSupabase } from "@/lib/db/service";
 import { ensurePdfPreview, signedInvoiceUrl } from "@/lib/storage";
 import { Constants, type Tables } from "@/lib/db/types";
 import { fmtDate, fmtMoney, fmtQty, fmtUnitCost, statusChipClass, statusLabel, Chip, Flash } from "@/components/ui-format";
-import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, retryParse, setVendor, updateSheetLayout } from "./actions";
+import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, retryParse, setLineSize, setVendor, updateSheetLayout } from "./actions";
+import { BOTTLE_SIZE_CHOICES } from "@/lib/core/liquor";
 import { isSpreadsheetExtraction, SheetReview } from "@/components/sheet-review";
 
 export const metadata = { title: "Review invoice" };
@@ -40,7 +41,7 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
 
   const [{ data: lines }, { data: vendors }, { data: items }] = await Promise.all([
     supabase.from("invoice_lines").select("*").eq("invoice_id", doc.id).order("line_no"),
-    supabase.from("vendors").select("id, name").eq("tenant_id", ctx.tenant.id).order("name"),
+    supabase.from("vendors").select("id, name, kind").eq("tenant_id", ctx.tenant.id).order("name"),
     supabase.from("inventory_items").select("id, name, base_unit, category").eq("tenant_id", ctx.tenant.id).order("name"),
   ]);
   const mappingIds = [...new Set((lines ?? []).map((l) => l.mapping_id).filter((m): m is string => Boolean(m)))];
@@ -70,6 +71,9 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
   const itemById = new Map((items ?? []).map((i) => [i.id, i]));
   const mappingById = new Map((mappings ?? []).map((m) => [m.id, m]));
   const vendorNameById = new Map((vendors ?? []).map((v) => [v.id, v.name]));
+  const retailLiquor = (vendors ?? []).find((v) => v.id === doc.vendor_id)?.kind === "retail_liquor";
+  const llmEx = doc.raw_extraction as { kind?: string; region?: string | null; document_count?: number; validation?: { ok: boolean; issues: string[]; line_sum: string; subtotal: string | null; line_count: number; printed_item_count: number | null }; attempts?: number; parent_document_id?: string | null; sibling_document_ids?: string[]; duplicates_removed?: string[] } | null;
+  const validation = llmEx?.kind === "llm" ? llmEx.validation : undefined;
   const allLines = lines ?? [];
   const unresolved = allLines.filter((l) => l.status === "unmapped");
   const resolved = allLines.filter((l) => l.status !== "unmapped");
@@ -164,6 +168,23 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
             <dt className="text-xs text-neutral-500">Total</dt>
             <dd className="font-medium tabular-nums">{fmtMoney(doc.total)}</dd>
           </div>
+          {doc.receipt_id || doc.transaction_code || doc.invoice_time ? (
+            <div className="col-span-3 text-xs text-neutral-600">
+              {doc.receipt_id ? <>Receipt # <span className="font-medium">{doc.receipt_id}</span></> : null}
+              {doc.transaction_code ? <> · register {doc.transaction_code}</> : null}
+              {doc.invoice_time ? <> · {String(doc.invoice_time).slice(0, 5)}</> : null}
+              {llmEx?.kind === "llm" && (llmEx.document_count ?? 1) > 1 ? <> · {llmEx.region ?? "part"} of a {llmEx.document_count}-receipt page</> : null}
+            </div>
+          ) : null}
+          {validation ? (
+            <div className={`col-span-3 rounded-lg px-2 py-1 text-xs ${validation.ok ? "bg-emerald-50 text-emerald-900" : "bg-amber-50 text-amber-900"}`}>
+              {validation.line_count} line{validation.line_count === 1 ? "" : "s"}
+              {validation.printed_item_count != null ? ` of ${validation.printed_item_count} printed` : ""} · Σ lines ${validation.line_sum}
+              {validation.subtotal ? ` vs subtotal ${validation.subtotal}` : ""}
+              {validation.ok ? " ✓" : ` — ${validation.issues.join("; ")}`}
+              {(llmEx?.attempts ?? 1) > 1 ? " (re-read once)" : ""}
+            </div>
+          ) : null}
           <div className="col-span-3 text-xs text-neutral-500">
             Subtotal {fmtMoney(doc.subtotal)} · Tax {fmtMoney(doc.tax)}
             {doc.parse_confidence != null ? ` · read with ${Math.round(doc.parse_confidence * 100)}% confidence` : ""}
@@ -198,7 +219,7 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
           </h2>
           {!doc.vendor_id ? <p className="text-sm text-amber-800">Pick the vendor above first — mappings are learned per vendor.</p> : null}
           {unresolved.map((l) => (
-            <UnresolvedLine key={l.id} line={l} documentId={doc.id} items={items ?? []} />
+            <UnresolvedLine key={l.id} line={l} documentId={doc.id} items={items ?? []} retailLiquor={retailLiquor} />
           ))}
         </section>
       ) : null}
@@ -210,7 +231,7 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
         ) : (
           <ul className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white">
             {resolved.map((l) => (
-              <ResolvedLine key={l.id} line={l} documentId={doc.id} item={l.inventory_item_id ? itemById.get(l.inventory_item_id) : undefined} mapping={l.mapping_id ? mappingById.get(l.mapping_id) : undefined} />
+              <ResolvedLine key={l.id} line={l} documentId={doc.id} item={l.inventory_item_id ? itemById.get(l.inventory_item_id) : undefined} mapping={l.mapping_id ? mappingById.get(l.mapping_id) : undefined} retailLiquor={retailLiquor} />
             ))}
           </ul>
         )}
@@ -222,10 +243,40 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
 
 function qtyText(line: Line): string {
   const q = fmtQty(line.quantity);
-  return line.pack_size_text ? `${q} × ${line.pack_size_text}` : q;
+  return line.pack_size_text ? `${q} × ${line.pack_size_text}${line.pack_size_assumed ? " (assumed)" : ""}` : q;
 }
 
-function ResolvedLine({ line, documentId, item, mapping }: { line: Line; documentId: string; item: Item | undefined; mapping: Mapping | undefined }) {
+/** Adjustment folded into the line (promo / discount / deposit) — shown, never a line of its own. */
+function AdjustmentNote({ line }: { line: Line }) {
+  if (line.adjustment == null || Number(line.adjustment) === 0) return null;
+  const adj = Number(line.adjustment);
+  return (
+    <span className="text-xs text-neutral-500">
+      {" "}
+      · {fmtMoney(line.gross_price)} {adj > 0 ? "−" : "+"} {fmtMoney(Math.abs(adj))} {adj > 0 ? "promo" : "deposit"}
+    </span>
+  );
+}
+
+/** Retail liquor: the bottle size drives base units; one tap fixes an assumed size. */
+function SizePicker({ line, documentId }: { line: Line; documentId: string }) {
+  return (
+    <form action={setLineSize} className="flex flex-wrap items-center gap-1">
+      <input type="hidden" name="document_id" value={documentId} />
+      <input type="hidden" name="line_id" value={line.id} />
+      <span className={`mr-1 rounded-full px-2 py-0.5 text-xs ${line.pack_size_assumed ? "bg-amber-100 text-amber-900" : "bg-neutral-100 text-neutral-700"}`}>
+        {line.pack_size_text ?? "size?"}{line.pack_size_assumed ? " assumed" : ""}
+      </span>
+      {BOTTLE_SIZE_CHOICES.filter((s) => s !== line.pack_size_text).map((s) => (
+        <button key={s} name="size" value={s} className="h-9 rounded-lg border border-neutral-300 bg-white px-2 text-xs font-medium">
+          {s}
+        </button>
+      ))}
+    </form>
+  );
+}
+
+function ResolvedLine({ line, documentId, item, mapping, retailLiquor }: { line: Line; documentId: string; item: Item | undefined; mapping: Mapping | undefined; retailLiquor: boolean }) {
   const ai = line.status === "auto_mapped" && !mapping?.confirmed_at;
   const unit = item?.base_unit ?? "";
   return (
@@ -253,10 +304,12 @@ function ResolvedLine({ line, documentId, item, mapping }: { line: Line; documen
               ) : null}
             </>
           )}
+          <AdjustmentNote line={line} />
           {mapping?.pack_description ? <div className="text-xs text-neutral-500">assumed {mapping.pack_description} = {fmtQty(mapping.units_per_pack * mapping.base_units_per_unit)} {unit}{mapping.brand ? ` · ${mapping.brand}` : ""}</div> : null}
         </div>
         <span className="shrink-0 tabular-nums text-neutral-700">{fmtMoney(line.extended_price)}</span>
       </div>
+      {retailLiquor && line.status !== "ignored" ? <SizePicker line={line} documentId={documentId} /> : null}
       {ai ? (
         <form action={approveAutoMapping} className="flex items-center gap-2">
           <input type="hidden" name="document_id" value={documentId} />
@@ -269,22 +322,25 @@ function ResolvedLine({ line, documentId, item, mapping }: { line: Line; documen
   );
 }
 
-function UnresolvedLine({ line, documentId, items }: { line: Line; documentId: string; items: Item[] }) {
+function UnresolvedLine({ line, documentId, items, retailLiquor }: { line: Line; documentId: string; items: Item[]; retailLiquor: boolean }) {
   return (
-    <form action={confirmLine} className="flex flex-col gap-3 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+    <div className="flex flex-col gap-2 rounded-2xl border border-amber-300 bg-amber-50 p-4">
+    <div className="flex items-start justify-between gap-2 text-sm">
+      <div>
+        <div className="font-medium">{line.description}</div>
+        <div className="text-neutral-600">
+          {qtyText(line)}
+          {line.vendor_sku ? ` · SKU ${line.vendor_sku}` : ""}
+          {line.unit_price != null ? ` · ${fmtMoney(line.unit_price)} each` : ""}
+          <AdjustmentNote line={line} />
+        </div>
+      </div>
+      <span className="shrink-0 tabular-nums">{fmtMoney(line.extended_price)}</span>
+    </div>
+    {retailLiquor ? <SizePicker line={line} documentId={documentId} /> : null}
+    <form action={confirmLine} className="flex flex-col gap-3">
       <input type="hidden" name="document_id" value={documentId} />
       <input type="hidden" name="line_id" value={line.id} />
-      <div className="flex items-start justify-between gap-2 text-sm">
-        <div>
-          <div className="font-medium">{line.description}</div>
-          <div className="text-neutral-600">
-            {qtyText(line)}
-            {line.vendor_sku ? ` · SKU ${line.vendor_sku}` : ""}
-            {line.unit_price != null ? ` · ${fmtMoney(line.unit_price)} each` : ""}
-          </div>
-        </div>
-        <span className="shrink-0 tabular-nums">{fmtMoney(line.extended_price)}</span>
-      </div>
 
       <label className="text-sm">
         Inventory item
@@ -356,5 +412,6 @@ function UnresolvedLine({ line, documentId, items }: { line: Line; documentId: s
         </button>
       </div>
     </form>
+    </div>
   );
 }

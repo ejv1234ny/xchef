@@ -7,6 +7,8 @@ import { modelFor } from "@/lib/llm/models";
 import { matchSku } from "@/lib/llm/sku-match";
 import { computeLineTotals, resolveLine, type InventoryRef, type LineInput, type MappingRef, type Resolution, type SkuMatch } from "@/lib/core/resolveMapping";
 import { isUom } from "@/lib/core/units";
+import { parsePackSize } from "@/lib/core/packs";
+import { inferBottleSize } from "@/lib/core/liquor";
 import { getLocation, type Logger } from "./intake";
 
 /** The post step lives in postInvoice.ts; re-exported here because the UI imports both from this module. */
@@ -103,7 +105,7 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
   const [{ data: mappingRows, error: merr }, { data: inventoryRows, error: ierr }, { data: vendorRow }] = await Promise.all([
     svc.from("vendor_item_mappings").select("id, vendor_id, vendor_sku, description_norm, inventory_item_id, units_per_pack, base_units_per_unit, confirmed_at").eq("vendor_id", vendorId),
     svc.from("inventory_items").select("id, name, category, base_unit, pack_to_base_factor").eq("tenant_id", location.tenant_id).order("name"),
-    svc.from("vendors").select("name").eq("id", vendorId).maybeSingle(),
+    svc.from("vendors").select("name, kind").eq("id", vendorId).maybeSingle(),
   ]);
   if (merr) throw new Error(`read vendor_item_mappings: ${merr.message}`);
   if (ierr) throw new Error(`read inventory_items: ${ierr.message}`);
@@ -111,6 +113,7 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
   const inventoryFull = inventoryRows ?? [];
   const inventory: InventoryRef[] = inventoryFull.filter((i) => isUom(i.base_unit)).map((i) => ({ id: i.id, name: i.name, base_unit: i.base_unit, pack_to_base_factor: i.pack_to_base_factor }));
   const vendorName = vendorRow?.name ?? "vendor";
+  const retailLiquor = vendorRow?.kind === "retail_liquor";
   const llmOk = isLlmConfigured();
 
   for (const line of lines) {
@@ -133,6 +136,17 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
       continue;
     }
 
+    if (retailLiquor) {
+      // Retail liquor receipts: one line = N bottles/cans/packs. Take the size from the
+      // name when printed, else assume 750 ml and say so (fixable in one tap on review).
+      const parsedNow = parsePackSize(line.pack_size_text, "oz");
+      if (!line.pack_size_text || parsedNow.source === "unknown") {
+        const inferred = inferBottleSize(line.description);
+        await svc.from("invoice_lines").update({ pack_size_text: inferred.text, pack_size_assumed: inferred.assumed }).eq("id", line.id);
+        line.pack_size_text = inferred.text;
+        line.pack_size_assumed = inferred.assumed;
+      }
+    }
     const input = toLineInput(line);
     let r = resolveLine({ line: input, vendorId, mappings, inventory });
 
