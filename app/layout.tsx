@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { ServiceWorkerRegister } from "@/components/sw-register";
 
 export const metadata: Metadata = {
   title: { default: "xchef", template: "%s · xchef" },
@@ -19,7 +20,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className="min-h-full bg-neutral-50 text-neutral-900">{children}</body>
+      <body className="min-h-full bg-neutral-50 text-neutral-900">
+        {children}
+        <ServiceWorkerRegister />
+      </body>
     </html>
   );
 }

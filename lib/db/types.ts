@@ -288,6 +288,56 @@ export type Database = {
           },
         ]
       }
+      llm_calls: {
+        Row: {
+          cost_usd: number | null
+          created_at: string
+          error: string | null
+          id: string
+          input_tokens: number
+          kind: string
+          model: string
+          output_tokens: number
+          raw: Json | null
+          ref_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          cost_usd?: number | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_tokens?: number
+          kind: string
+          model: string
+          output_tokens?: number
+          raw?: Json | null
+          ref_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          cost_usd?: number | null
+          created_at?: string
+          error?: string | null
+          id?: string
+          input_tokens?: number
+          kind?: string
+          model?: string
+          output_tokens?: number
+          raw?: Json | null
+          ref_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "llm_calls_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       locations: {
         Row: {
           created_at: string
