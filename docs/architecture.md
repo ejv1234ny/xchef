@@ -65,7 +65,7 @@ xchef/                       (name TBD)
 **Order pull.** Cron every 5 minutes per active location (pg-boss singleton per location so runs never overlap):
 
 1. `startDate = last_synced_at − 36h`, `endDate = now`. The overlap is deliberate: Toast recommends `startDate/endDate` because orders are *modified* after creation (voids, refunds, tabs closed the next morning). Re-pulling a window and upserting is cheaper than reasoning about edits.
-2. Page `GET /orders/v1/ordersBulk?startDate&endDate&pageSize=100&page=n` following the pagination links; throttle to ≤ 4 req/s per location (Toast's limit is 5).
+2. Page `GET /orders/v2/ordersBulk?startDate&endDate&pageSize=100&page=n` following the pagination links; throttle to ≤ 4 req/s per location (Toast's limit is 5).
 3. Upsert each order into `toast_orders_raw` keyed `(location_id, order_guid)` with `business_date`, `modified_date`, `voided`, `payload`.
 4. Collect the set of `business_date`s touched, then **rebuild `sales_facts` for exactly those dates** from `toast_orders_raw` (delete + insert inside a transaction). This makes the rollup idempotent and lets you re-run any day after a recipe or mapping fix.
 5. Set `last_synced_at`.
@@ -105,7 +105,7 @@ Use Toast's own `businessDate`, never the calendar date of `openedDate` — it a
 | Scan, photo, or pasted text | `upload` / `paste` | App: drag-drop or phone camera → Storage; pasted text is wrapped as a text document and parsed the same way. |
 | Manual intake | `manual` | App form: vendor, date, lines. Skips parsing; goes straight to mapping. For the vendor that only leaves a paper slip. |
 
-**Address.** `invoices-<slug>@in.<domain>` per location (`locations.inbound_email_slug`). Postmark routes `*@in.<domain>` to `POST https://worker.<railway>/inbound/postmark`, authenticated with a basic-auth secret in the URL plus Postmark's IP allowlist.
+**Address.** `invoices-<slug>@in.<domain>` per location (`locations.inbound_email_slug`). Postmark routes `*@in.<domain>` to `POST https://worker.<railway>/inbound/postmark`, authenticated with a basic-auth secret in the URL plus Postmark's IP allowlist. (Simple build: Postmark's default inbound address posts to the Next.js route `/api/inbound/postmark/[secret]` — see CLAUDE.md.)
 
 **Webhook (`/inbound/postmark`).** Must return 200 fast:
 
@@ -209,7 +209,7 @@ A goes first by a day so B–D have types and a worker to plug into. C can run e
 
 ## 9. Open decisions
 
-- **Product name / domain** — needed for the inbound address (`invoices-madmoose@in.<domain>`).
+- **Product name / domain** — needed for a friendly inbound address (`invoices@…`); the Postmark default address works meanwhile.
 - **Weighted-average vs last-price** for `cost_per_base_unit`. Start last-price.
 - **Refund handling** — currently "consumed, don't subtract". Confirm.
 - **Modifier recipes** — first pass treats "sub Patrón" as a *replacement* only if the operator marks it; default is additive. Needs a `replaces_inventory_item_id` on `recipe_components` eventually.
