@@ -38,7 +38,7 @@ All three phases from `docs/KICKOFF.md` Prompt F are implemented, committed, pus
 
 ## 3. Three-day sales comparison
 
-**Not run.** It needs Toast credentials in Vault and `SUPABASE_SERVICE_ROLE_KEY`; STEP 0 was never executed, so no `.env.toast` or service-role key existed in the session. The check is fully scripted:
+**Not run.** The service-role key arrived late in the session, but Toast credentials (`.env.toast`) were never provided, so nothing could be synced. The check is fully scripted:
 
 ```bash
 pnpm creds && pnpm sync            # repeat `pnpm sync` until "Caught up."

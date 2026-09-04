@@ -12,13 +12,20 @@ export const MODELS = {
 
 /** USD per million tokens, for the cost log only (not billing). */
 const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
-  [MODELS.sonnet]: { input: 3, output: 15 },
+  [MODELS.sonnet]: { input: 2, output: 10 },
   [MODELS.haiku]: { input: 1, output: 5 },
 };
 
 let client: Anthropic | undefined;
 export function getAnthropic(): Anthropic {
-  if (!client) client = new Anthropic({ apiKey: env.anthropicApiKey() });
+  if (!client) {
+    // Identity-linked API keys must name the workspace they act in.
+    const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
+    client = new Anthropic({
+      apiKey: env.anthropicApiKey(),
+      defaultHeaders: workspaceId ? { "anthropic-workspace-id": workspaceId } : undefined,
+    });
+  }
   return client;
 }
 
