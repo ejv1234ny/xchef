@@ -16,7 +16,7 @@ Receiving is **automated, not manual**: vendors email invoices to a per-location
 
 | Concept | Table | Where it comes from |
 |---|---|---|
-| What sold | `sales_facts` | Toast **Orders API** (`GET /orders/v1/ordersBulk`), flattened Order → Check → Selection, rolled up per item per business day |
+| What sold | `sales_facts` | Toast **Orders API** (`GET /orders/v2/ordersBulk`), flattened Order → Check → Selection, rolled up per item per business day |
 | What it's made of | `recipe_components` | AI draft from menu upload → confirmed in the Q&A |
 | The raw ingredient | `inventory_items` | created as recipes are built (catalog of "things used") |
 | Menu item | `menu_items` | parsed from menu upload, matched to Toast GUID (Menus v2 API) |
