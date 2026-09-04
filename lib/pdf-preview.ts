@@ -11,6 +11,19 @@ export async function renderPdfFirstPage(bytes: Uint8Array, opts: { maxWidth?: n
   try {
     const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
     const { createCanvas } = await import("@napi-rs/canvas");
+    // Serverless bundles only include files the tracer can see. Importing the
+    // worker with a literal specifier keeps it in the bundle, and pointing
+    // workerSrc at its resolved file URL lets pdfjs's in-process "fake worker"
+    // load it on Vercel (where relative URL resolution from pdf.mjs fails).
+    await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+    try {
+      const { createRequire } = await import("node:module");
+      const { pathToFileURL } = await import("node:url");
+      const req = createRequire(`${process.cwd()}/`);
+      pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(req.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs")).href;
+    } catch {
+      /* fall back to pdfjs's own resolution */
+    }
     const task = pdfjs.getDocument({ data: new Uint8Array(bytes), disableFontFace: true, useSystemFonts: true, verbosity: 0 });
     const doc = await task.promise;
     try {
