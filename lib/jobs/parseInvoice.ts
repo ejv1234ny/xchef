@@ -1,7 +1,9 @@
 import Decimal from "decimal.js";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Database, Json } from "@/lib/db/types";
-import { isAnthropicConfigured, logLlmCall, MODELS } from "@/lib/llm/anthropic";
+import { logLlmCall } from "@/lib/llm/anthropic";
+import { isLlmConfigured, selectedProviderName } from "@/lib/llm/provider";
+import { modelFor } from "@/lib/llm/models";
 import { HEIC_NOT_SUPPORTED, normalizeMime, parseInvoiceDocument, UnsupportedInvoiceMediaError, type InvoiceParse } from "@/lib/llm/invoice-parse";
 import { downloadInvoiceBytes } from "@/lib/storage";
 import { emailDomain, findOrCreateVendor, getLocation, type Logger } from "./intake";
@@ -13,7 +15,7 @@ import { emailDomain, findOrCreateVendor, getLocation, type Logger } from "./int
  * checks Σ extended vs subtotal (±2%, noted in parse_error but not fatal), and
  * moves the document to needs_review (map/post decide the rest) or rejected.
  *
- * Without ANTHROPIC_API_KEY the document stays 'received' with parse_error set.
+ * Without the selected provider's API key the document stays 'received' with parse_error set.
  */
 export type ParseJobResult = { status: Database["public"]["Enums"]["invoice_status"]; lines: number; error: string | null };
 
@@ -38,8 +40,8 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
   if (!doc) throw new Error(`document ${documentId} not found`);
   const location = await getLocation(svc, doc.location_id);
 
-  if (!isAnthropicConfigured()) {
-    const msg = "ANTHROPIC_API_KEY not configured";
+  if (!isLlmConfigured()) {
+    const msg = `${selectedProviderName() === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"} not configured`;
     await svc.from("invoice_documents").update({ status: "received", parse_error: msg }).eq("id", documentId);
     log("invoice-parse: skipped", { documentId, reason: msg });
     return { status: "received", lines: 0, error: msg };
@@ -69,10 +71,10 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
     const result = await parseInvoiceDocument(input);
     parsed = result.data;
     raw = result.raw;
-    await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "invoice-parse", ref_id: documentId, model: MODELS.sonnet, usage: result.usage, raw: result.raw });
+    await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "invoice-parse", ref_id: documentId, model: result.model, provider: result.provider, usage: result.usage, raw: result.raw });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "invoice-parse", ref_id: documentId, model: MODELS.sonnet, raw, error: msg });
+    await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "invoice-parse", ref_id: documentId, model: modelFor(selectedProviderName(), "invoice-parse"), provider: selectedProviderName(), raw, error: msg });
     const unsupported = e instanceof UnsupportedInvoiceMediaError;
     await svc.from("invoice_documents").update({ status: "needs_review", parse_error: unsupported ? msg : `parse failed: ${msg}` }).eq("id", documentId);
     log("invoice-parse: error", { documentId, error: msg });

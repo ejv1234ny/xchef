@@ -1,7 +1,9 @@
 import { createServiceSupabase, type ServiceClient } from "@/lib/db/service";
 import type { Enums, Tables } from "@/lib/db/types";
 import { addDays, todayIn } from "@/lib/core/dates";
-import { isAnthropicConfigured, logLlmCall, MODELS } from "@/lib/llm/anthropic";
+import { logLlmCall } from "@/lib/llm/anthropic";
+import { isLlmConfigured, selectedProviderName } from "@/lib/llm/provider";
+import { modelFor } from "@/lib/llm/models";
 import { draftRecipe, type RecipeComponentDraft } from "@/lib/llm/recipe-draft";
 
 export type RecipeDraftLogger = (msg: string, meta?: Record<string, unknown>) => void;
@@ -185,14 +187,15 @@ async function draftOne(
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await logLlmCall(svc, { tenant_id: opts.tenantId, kind: "recipe-draft", ref_id: item.id, model: MODELS.sonnet, error: message });
+    await logLlmCall(svc, { tenant_id: opts.tenantId, kind: "recipe-draft", ref_id: item.id, model: modelFor(selectedProviderName(), "recipe-draft"), provider: selectedProviderName(), error: message });
     throw e;
   }
   await logLlmCall(svc, {
     tenant_id: opts.tenantId,
     kind: "recipe-draft",
     ref_id: item.id,
-    model: MODELS.sonnet,
+    model: result.model,
+    provider: result.provider,
     usage: result.usage,
     raw: result.raw,
   });
@@ -257,7 +260,7 @@ async function draftOne(
 export async function draftRecipes(svc: ServiceClient, opts: DraftRecipesOptions): Promise<DraftRecipesResult> {
   const log = opts.log ?? (() => {});
   const result: DraftRecipesResult = { drafted: 0, skipped: 0, errors: 0, newItems: 0 };
-  if (!isAnthropicConfigured()) throw new Error("ANTHROPIC_API_KEY not configured");
+  if (!isLlmConfigured()) throw new Error("ANTHROPIC_API_KEY not configured");
 
   const items = await selectMenuItemsToDraft(svc, opts);
   if (items.length === 0) {

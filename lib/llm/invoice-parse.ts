@@ -1,6 +1,5 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { MODELS, runTool, type ToolCallResult } from "./anthropic";
+import { getProvider, toToolCallResult, type LlmFile, type LlmProvider, type ToolCallResult } from "./provider";
 
 /**
  * Invoice parsing (architecture.md §4.3 "Parse job"). One forced tool call to
@@ -102,9 +101,9 @@ export class UnsupportedInvoiceMediaError extends Error {
 
 export const HEIC_NOT_SUPPORTED = "HEIC not supported by parser; upload as JPEG";
 
-type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 const IMAGE_MIMES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
+/** Normalize a MIME type, falling back to the filename extension for octet-stream / empty types. */
 export function normalizeMime(mimeType: string, filename: string): string {
   const m = mimeType.toLowerCase().split(";")[0].trim();
   if (m === "image/jpg") return "image/jpeg";
@@ -129,56 +128,46 @@ export function normalizeMime(mimeType: string, filename: string): string {
   return byExt[ext] ?? m;
 }
 
-function toBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
-}
-
-/** Build the user content blocks for a document. Throws UnsupportedInvoiceMediaError for HEIC/HEIF or unknown binaries. */
-export function buildInvoiceContent(input: { bytes?: Uint8Array; text?: string; mimeType: string; filename: string; vendorHint?: string | null }): Anthropic.MessageParam["content"] {
-  const blocks: Anthropic.ContentBlockParam[] = [];
+/** Provider-neutral prompt for a document: the user text plus the file (PDF/image) to attach. Throws UnsupportedInvoiceMediaError for HEIC/HEIF or unknown binaries. */
+export function buildInvoiceInput(input: { bytes?: Uint8Array; text?: string; mimeType: string; filename: string; vendorHint?: string | null }): { user: string; files: LlmFile[] } {
   const mime = normalizeMime(input.mimeType, input.filename);
   const hint = [`Filename: ${input.filename}`, input.vendorHint ? `Vendor hint (from the sender's email domain; verify against the document): ${input.vendorHint}` : null]
     .filter(Boolean)
     .join("\n");
-
+  const files: LlmFile[] = [];
+  let body = "";
   if (input.bytes && input.bytes.byteLength > 0 && mime !== "text/plain") {
     if (mime === "image/heic" || mime === "image/heif") throw new UnsupportedInvoiceMediaError(HEIC_NOT_SUPPORTED);
-    if (mime === "application/pdf") {
-      blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: toBase64(input.bytes) } });
-    } else if (IMAGE_MIMES.has(mime)) {
-      blocks.push({ type: "image", source: { type: "base64", media_type: mime as ImageMime, data: toBase64(input.bytes) } });
-    } else {
-      throw new UnsupportedInvoiceMediaError(`Unsupported document type ${mime}; upload a PDF, JPEG, PNG or WebP`);
-    }
+    if (mime === "application/pdf" || IMAGE_MIMES.has(mime)) files.push({ bytes: input.bytes, mimeType: mime, name: input.filename });
+    else throw new UnsupportedInvoiceMediaError(`Unsupported document type ${mime}; upload a PDF, JPEG, PNG or WebP`);
+    body = "The invoice document is attached.";
   } else {
     const text = input.text ?? (input.bytes ? Buffer.from(input.bytes).toString("utf8") : "");
     if (!text.trim()) throw new UnsupportedInvoiceMediaError("Empty document");
-    blocks.push({ type: "text", text: `Invoice text (pasted or emailed as plain text):\n\n${text}` });
+    body = `Invoice text (pasted or emailed as plain text):\n\n${text}`;
   }
-  blocks.push({ type: "text", text: `${hint}\n\nExtract this document with the extract_invoice tool.` });
-  return blocks;
+  return { user: `${body}\n\n${hint}\n\nExtract this document as extract_invoice.`, files };
 }
 
 /**
- * Parse one invoice document with Sonnet. The caller logs the call
- * (logLlmCall kind 'invoice-parse', ref_id = document id) including on error.
+ * Parse one invoice document with the configured provider (OpenAI by default).
+ * The caller logs the call (logLlmCall kind 'invoice-parse', ref_id = document id) including on error.
  */
-export async function parseInvoiceDocument(input: {
-  bytes?: Uint8Array;
-  text?: string;
-  mimeType: string;
-  filename: string;
-  vendorHint?: string | null;
-}): Promise<ToolCallResult<InvoiceParse>> {
-  const content = buildInvoiceContent(input);
-  return runTool({
-    model: MODELS.sonnet,
+export async function parseInvoiceDocument(
+  input: { bytes?: Uint8Array; text?: string; mimeType: string; filename: string; vendorHint?: string | null },
+  provider: LlmProvider = getProvider(),
+): Promise<ToolCallResult<InvoiceParse>> {
+  const { user, files } = buildInvoiceInput(input);
+  const r = await provider.structured<InvoiceParse>({
+    task: "invoice-parse",
     system: INVOICE_PARSE_SYSTEM,
-    content,
-    toolName: "extract_invoice",
-    toolDescription: "Structured extraction of a foodservice invoice, credit memo, receipt or delivery ticket.",
-    inputSchema: INVOICE_PARSE_TOOL_SCHEMA,
+    user,
+    files,
     schema: InvoiceParseSchema,
-    maxTokens: 16384,
+    schemaName: "extract_invoice",
+    toolSchema: INVOICE_PARSE_TOOL_SCHEMA,
+    toolDescription: "Structured extraction of a foodservice invoice, credit memo, receipt or delivery ticket.",
+    maxTokens: 8192,
   });
+  return toToolCallResult(r);
 }

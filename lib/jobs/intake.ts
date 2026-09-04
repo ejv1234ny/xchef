@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import Decimal from "decimal.js";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Database, Json } from "@/lib/db/types";
-import { ensureInvoicesBucket, extForMime, INVOICES_BUCKET, invoiceStoragePath, maxBytesFor } from "@/lib/storage";
+import { ensureInvoicesBucket, ensurePdfPreview, extForMime, INVOICES_BUCKET, invoiceStoragePath, maxBytesFor } from "@/lib/storage";
+import { heicToJpeg } from "@/lib/pdf-preview";
 import { isSpreadsheet } from "@/lib/core/sheets";
 import { parseInvoiceDocumentJob } from "./parseInvoice";
 import { parseSpreadsheetDocumentJob } from "./parseSpreadsheet";
@@ -101,8 +102,17 @@ export async function findOrCreateVendor(svc: ServiceClient, tenantId: string, n
 export async function createInvoiceDocument(svc: ServiceClient, input: IntakeInput): Promise<{ documentId: string; duplicate: boolean }> {
   const isManual = input.source === "manual";
   const text = input.text ?? "";
-  const bytes = input.bytes && input.bytes.byteLength > 0 ? input.bytes : new Uint8Array(Buffer.from(text, "utf8"));
+  let bytes = input.bytes && input.bytes.byteLength > 0 ? input.bytes : new Uint8Array(Buffer.from(text, "utf8"));
   if (bytes.byteLength === 0) throw new Error("empty document");
+  // Phone photos arrive as HEIC; browsers and the parser want JPEG. Convert before hashing so re-uploads dedupe.
+  const inMime = (input.mimeType || "").toLowerCase().split(";")[0].trim();
+  if (input.bytes && (inMime === "image/heic" || inMime === "image/heif" || /\.hei[cf]$/i.test(input.filename))) {
+    const jpeg = await heicToJpeg(bytes);
+    if (jpeg) {
+      bytes = jpeg;
+      input = { ...input, mimeType: "image/jpeg", filename: input.filename.replace(/\.hei[cf]$/i, "") + ".jpg" };
+    }
+  }
   const cap = maxBytesFor(input.mimeType);
   if (bytes.byteLength > cap) throw new Error(`${input.filename}: ${(bytes.byteLength / 1048576).toFixed(1)} MB exceeds the ${cap / 1048576} MB limit for this type`);
   const hash = sha256(bytes);
@@ -132,6 +142,14 @@ export async function createInvoiceDocument(svc: ServiceClient, input: IntakeInp
   await ensureInvoicesBucket(svc);
   const { error: uerr } = await svc.storage.from(INVOICES_BUCKET).upload(storagePath, bytes, { contentType: mime, upsert: false });
   if (uerr && !/already exists|duplicate/i.test(uerr.message)) throw new Error(`storage upload ${storagePath}: ${uerr.message}`);
+  if (mime === "application/pdf") {
+    // First-page PNG for phones that cannot embed PDFs. Best-effort; never blocks intake.
+    try {
+      await ensurePdfPreview(svc, storagePath, bytes);
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: "pdf-preview: skipped", storagePath, error: e instanceof Error ? e.message : String(e) }));
+    }
+  }
 
   const { data: doc, error: ierr } = await svc
     .from("invoice_documents")

@@ -15,6 +15,7 @@ export const env = {
   supabaseServiceRoleKey: () => required("SUPABASE_SERVICE_ROLE_KEY"),
   cronSecret: () => required("CRON_SECRET"),
   anthropicApiKey: () => required("ANTHROPIC_API_KEY"),
+  openaiApiKey: () => required("OPENAI_API_KEY"),
   postmarkInboundSecret: () => required("POSTMARK_INBOUND_SECRET"),
   toastApiHost: () => process.env.TOAST_API_HOST ?? "https://ws-api.toasttab.com",
   appUrl: () => process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",

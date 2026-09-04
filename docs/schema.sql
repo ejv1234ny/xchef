@@ -802,3 +802,7 @@ create index on inbound_events (message_id);
 alter table inbound_events enable row level security;
 create policy location_read on inbound_events for select
   using (location_id in (select my_location_ids()));
+
+-- MIGRATION 0008 (20260904060000_llm_calls_provider.sql, applied): llm_calls.provider ('openai' | 'anthropic').
+alter table llm_calls add column provider text not null default 'anthropic';
+create index on llm_calls (provider, created_at desc);

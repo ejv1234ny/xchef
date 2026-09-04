@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { COLUMN_ROLES, cellStr, type Cell, type ColumnMap, type ColumnRole, type Row } from "@/lib/core/sheets";
-import { MODELS, runTool, type ToolCallResult } from "./anthropic";
+import { getProvider, toToolCallResult, type LlmProvider, type ToolCallResult } from "./provider";
 
 /**
  * Haiku maps an unknown spreadsheet header to column roles. Called once per
@@ -46,22 +46,24 @@ const SYSTEM = `You map the columns of a US foodservice distributor spreadsheet 
 Roles: vendor_sku (the vendor's item/product code), description (product name), pack_size (pack/size text like "6/#10", "12/750ML", "40 LB"), quantity (units shipped/received — prefer shipped over ordered), unit_price (price per invoice unit), extended_price (line amount), invoice_number, invoice_date, vendor_name, ignore.
 Assign each role at most once. If both "ordered" and "shipped" quantities exist, shipped is quantity and ordered is ignore. Brand, category, UPC, GTIN, tax flags, weights, and totals columns are ignore. Be honest in confidence.`;
 
-export async function mapSheetColumns(input: { headerCells: Row; sampleRows: Row[]; filename: string; sheetName: string }): Promise<ToolCallResult<SheetMap> & { columnMap: ColumnMap }> {
+export async function mapSheetColumns(input: { headerCells: Row; sampleRows: Row[]; filename: string; sheetName: string }, provider: LlmProvider = getProvider()): Promise<ToolCallResult<SheetMap> & { columnMap: ColumnMap }> {
   const header = input.headerCells.map((c, i) => `${i}: ${JSON.stringify(cellStr(c))}`).join("\n");
   const rows = input.sampleRows
     .slice(0, 5)
     .map((r, ri) => `row ${ri + 1}: ${r.map((c: Cell) => JSON.stringify(cellStr(c))).join(" | ")}`)
     .join("\n");
-  const result = await runTool<SheetMap>({
-    model: MODELS.haiku,
-    system: SYSTEM,
-    content: [{ type: "text", text: `File: ${input.filename}\nSheet: ${input.sheetName}\n\nHeader row (index: title):\n${header}\n\nFirst data rows:\n${rows}\n\nMap the columns with the map_columns tool.` }],
-    toolName: "map_columns",
-    toolDescription: "Assign a role to every column of the header row.",
-    inputSchema: TOOL_SCHEMA,
-    schema: SheetMapSchema,
-    maxTokens: 1024,
-  });
+  const result = toToolCallResult(
+    await provider.structured<SheetMap>({
+      task: "sheet-map",
+      system: SYSTEM,
+      user: `File: ${input.filename}\nSheet: ${input.sheetName}\n\nHeader row (index: title):\n${header}\n\nFirst data rows:\n${rows}\n\nMap the columns as map_columns.`,
+      schema: SheetMapSchema,
+      schemaName: "map_columns",
+      toolSchema: TOOL_SCHEMA,
+      toolDescription: "Assign a role to every column of the header row.",
+      maxTokens: 1024,
+    }),
+  );
   const columnMap: ColumnMap = {};
   const taken = new Set<ColumnRole>();
   for (const c of result.data.columns) {

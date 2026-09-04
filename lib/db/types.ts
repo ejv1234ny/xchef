@@ -378,6 +378,7 @@ export type Database = {
           kind: string
           model: string
           output_tokens: number
+          provider: string
           raw: Json | null
           ref_id: string | null
           tenant_id: string
@@ -391,6 +392,7 @@ export type Database = {
           kind: string
           model: string
           output_tokens?: number
+          provider?: string
           raw?: Json | null
           ref_id?: string | null
           tenant_id: string
@@ -404,6 +406,7 @@ export type Database = {
           kind?: string
           model?: string
           output_tokens?: number
+          provider?: string
           raw?: Json | null
           ref_id?: string | null
           tenant_id?: string

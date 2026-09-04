@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MODELS, runTool, type ToolCallResult } from "./anthropic";
+import { getProvider, toToolCallResult, type LlmProvider, type ToolCallResult } from "./provider";
 import { parsePackSize } from "@/lib/core/packs";
 import { UOMS, isUom, type Uom } from "@/lib/core/units";
 import type { SkuMatch } from "@/lib/core/resolveMapping";
@@ -118,16 +118,17 @@ export function buildSkuMatchPrompt(input: SkuMatchInput): string {
     .join("\n");
 }
 
-/** Match one line with Haiku. The caller logs the call (kind 'sku-match', ref_id = line id) including on error. */
-export async function matchSku(input: SkuMatchInput): Promise<ToolCallResult<SkuMatch>> {
-  return runTool({
-    model: MODELS.haiku,
+/** Match one line (gpt-4.1-mini by default). The caller logs the call (kind 'sku-match', ref_id = line id) including on error. */
+export async function matchSku(input: SkuMatchInput, provider: LlmProvider = getProvider()): Promise<ToolCallResult<SkuMatch>> {
+  const r = await provider.structured<SkuMatch>({
+    task: "sku-match",
     system: SKU_MATCH_SYSTEM,
-    content: [{ type: "text", text: buildSkuMatchPrompt(input) }],
-    toolName: "match_sku",
-    toolDescription: "Map an invoice line to an inventory item (existing, new, or not inventory) and give its pack size.",
-    inputSchema: SKU_MATCH_TOOL_SCHEMA,
+    user: buildSkuMatchPrompt(input),
     schema: SkuMatchSchema,
+    schemaName: "match_sku",
+    toolSchema: SKU_MATCH_TOOL_SCHEMA,
+    toolDescription: "Map an invoice line to an inventory item (existing, new, or not inventory) and give its pack size.",
     maxTokens: 1024,
   });
+  return toToolCallResult(r);
 }

@@ -1,4 +1,5 @@
 import type { ServiceClient } from "@/lib/db/service";
+import { renderPdfFirstPage } from "@/lib/pdf-preview";
 
 /**
  * Supabase Storage for invoice files (private bucket `invoices`).
@@ -64,14 +65,45 @@ export function isDisplayableStoragePath(storagePath: string): boolean {
 }
 
 /**
- * Short-lived signed URL for the review screen; null for manual intake
- * (`manual/…json`) which has no document to show.
+ * Short-lived signed URL for the review screen, with download disabled so
+ * browsers render PDFs/images inline instead of saving them; null for manual
+ * intake (`manual/…json`) which has no document to show.
  */
 export async function signedInvoiceUrl(svc: ServiceClient, storagePath: string, expiresSeconds = 600): Promise<string | null> {
   if (!storagePath || !isDisplayableStoragePath(storagePath)) return null;
-  const { data, error } = await svc.storage.from(INVOICES_BUCKET).createSignedUrl(storagePath, expiresSeconds);
+  const { data, error } = await svc.storage.from(INVOICES_BUCKET).createSignedUrl(storagePath, expiresSeconds, { download: false });
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;
+}
+
+/** `<path without extension>.preview.png` — the first page of a PDF, rendered at upload time. */
+export function previewPathFor(storagePath: string): string {
+  return storagePath.replace(/\.[a-z0-9]+$/i, "") + ".preview.png";
+}
+
+export function isPdfPath(storagePath: string): boolean {
+  return storagePath.toLowerCase().endsWith(".pdf");
+}
+
+/**
+ * Make sure a PDF has its first-page PNG preview next to it. Best-effort:
+ * returns the preview path when it exists or was just rendered, null when
+ * the PDF could not be rendered. Pass the bytes when you already have them.
+ */
+export async function ensurePdfPreview(svc: ServiceClient, storagePath: string, bytes?: Uint8Array): Promise<string | null> {
+  if (!isPdfPath(storagePath)) return null;
+  const previewPath = previewPathFor(storagePath);
+  const { data: existing } = await svc.storage.from(INVOICES_BUCKET).createSignedUrl(previewPath, 60);
+  if (existing?.signedUrl) return previewPath;
+  const source = bytes ?? (await downloadInvoiceBytes(svc, storagePath));
+  const png = await renderPdfFirstPage(source);
+  if (!png) return null;
+  const { error } = await svc.storage.from(INVOICES_BUCKET).upload(previewPath, png, { contentType: "image/png", upsert: true });
+  if (error) {
+    console.warn(JSON.stringify({ msg: "pdf-preview: upload failed", previewPath, error: error.message }));
+    return null;
+  }
+  return previewPath;
 }
 
 /** Download an object as bytes. */

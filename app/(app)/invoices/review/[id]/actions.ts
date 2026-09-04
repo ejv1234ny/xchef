@@ -325,3 +325,19 @@ export async function updateSheetLayout(formData: FormData) {
     back(documentId, "error", e instanceof Error ? e.message : String(e));
   }
 }
+
+/** "Retry parse": re-run the parse step (LLM or spreadsheet) for a document that has no lines, then map → post. */
+export async function retryParse(formData: FormData) {
+  const ctx = await getAppContext();
+  const documentId = uuid.safeParse(field(formData, "document_id")).data;
+  if (!documentId) redirect("/invoices?error=Bad%20request");
+  const doc = await loadDocument(documentId, ctx.location.id);
+  if (!doc) back(documentId, "error", "Invoice not found");
+  try {
+    const r = await runInvoicePipeline(createServiceSupabase(), documentId, { reparse: true });
+    refresh(documentId);
+    back(documentId, r.status === "rejected" ? "error" : "ok", r.status === "rejected" ? "Rejected: not an invoice (statement or other)." : `Re-read ${r.lines} line${r.lines === 1 ? "" : "s"}; ${r.unmapped} to review. Status: ${r.status}.`);
+  } catch (e) {
+    back(documentId, "error", e instanceof Error ? e.message : String(e));
+  }
+}

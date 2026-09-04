@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getAppContext } from "@/lib/db/context";
-import { isAnthropicConfigured } from "@/lib/llm/anthropic";
+import { isLlmConfigured } from "@/lib/llm/provider";
 import { runRecipeDraft } from "@/lib/jobs/recipeDraft";
 
 const BATCH = 10;
@@ -15,7 +15,7 @@ function msg(kind: "ok" | "error", text: string): never {
 /** Draft recipes for the next 10 most-sold menu items that have none. */
 export async function draftNextBatch() {
   const ctx = await getAppContext();
-  if (!isAnthropicConfigured()) msg("error", "ANTHROPIC_API_KEY not configured");
+  if (!isLlmConfigured()) msg("error", "LLM API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) not configured");
   let result: Awaited<ReturnType<typeof runRecipeDraft>>;
   try {
     result = await runRecipeDraft({

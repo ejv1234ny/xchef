@@ -14,7 +14,7 @@ import { arg, hasFlag, log } from "./_env";
 import { createServiceSupabase } from "@/lib/db/service";
 import { createInvoiceDocument, runInvoicePipeline } from "@/lib/jobs/intake";
 import { normalizeMime } from "@/lib/llm/invoice-parse";
-import { isAnthropicConfigured } from "@/lib/llm/anthropic";
+import { isLlmConfigured } from "@/lib/llm/provider";
 
 const EXTS = new Set([".pdf", ".jpg", ".jpeg", ".png", ".webp", ".csv", ".tsv", ".xlsx", ".xls"]);
 
@@ -27,7 +27,7 @@ async function main() {
     console.log(`No PDF/JPG/PNG/CSV/XLSX files in ${dir}`);
     return;
   }
-  if (!isAnthropicConfigured()) console.log("ANTHROPIC_API_KEY not set: documents will be stored as 'received' and not parsed.");
+  if (!isLlmConfigured()) console.log("LLM API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) not configured: documents will be stored as 'received' and not parsed.");
 
   const svc = createServiceSupabase();
   let locationId = arg("location");

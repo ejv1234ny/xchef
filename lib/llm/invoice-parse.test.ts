@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { buildInvoiceContent, InvoiceParseSchema, normalizeMime, parseInvoiceDocument, UnsupportedInvoiceMediaError } from "./invoice-parse";
+import { buildInvoiceInput, InvoiceParseSchema, normalizeMime, parseInvoiceDocument, UnsupportedInvoiceMediaError } from "./invoice-parse";
+import { isLlmConfigured } from "./provider";
 
 const FIXTURES = path.join(__dirname, "../../fixtures/invoices");
 
@@ -47,20 +48,23 @@ describe("InvoiceParseSchema", () => {
     expect(() => InvoiceParseSchema.parse({ ...sample, document_kind: "receipt" })).toThrow();
   });
 
-  it("builds document / image / text blocks and refuses HEIC", () => {
-    const pdf = buildInvoiceContent({ bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]), mimeType: "application/pdf", filename: "a.pdf" });
-    expect(Array.isArray(pdf) && pdf[0].type).toBe("document");
-    const img = buildInvoiceContent({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpg", filename: "a.jpg", vendorHint: "Sysco" });
-    expect(Array.isArray(img) && img[0].type).toBe("image");
-    const txt = buildInvoiceContent({ text: "SYSCO INVOICE 123", mimeType: "text/plain", filename: "paste.txt" });
-    expect(Array.isArray(txt) && txt[0].type).toBe("text");
-    expect(() => buildInvoiceContent({ bytes: new Uint8Array([1]), mimeType: "image/heic", filename: "IMG_1.HEIC" })).toThrow(UnsupportedInvoiceMediaError);
-    expect(() => buildInvoiceContent({ bytes: new Uint8Array([1]), mimeType: "application/octet-stream", filename: "IMG_1.heic" })).toThrow(/HEIC/);
+  it("builds a provider-neutral input (PDF / image attached, text inline) and refuses HEIC", () => {
+    const pdf = buildInvoiceInput({ bytes: new Uint8Array([0x25, 0x50, 0x44, 0x46]), mimeType: "application/pdf", filename: "a.pdf" });
+    expect(pdf.files[0].mimeType).toBe("application/pdf");
+    const img = buildInvoiceInput({ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpg", filename: "a.jpg", vendorHint: "Sysco" });
+    expect(img.files[0].mimeType).toBe("image/jpeg");
+    expect(img.user).toContain("Vendor hint");
+    const txt = buildInvoiceInput({ text: "SYSCO INVOICE 123", mimeType: "text/plain", filename: "paste.txt" });
+    expect(txt.files).toHaveLength(0);
+    expect(txt.user).toContain("SYSCO INVOICE 123");
+    expect(() => buildInvoiceInput({ bytes: new Uint8Array([1]), mimeType: "image/heic", filename: "IMG_1.HEIC" })).toThrow(UnsupportedInvoiceMediaError);
+    expect(() => buildInvoiceInput({ bytes: new Uint8Array([1]), mimeType: "application/octet-stream", filename: "IMG_1.heic" })).toThrow(/HEIC/);
     expect(normalizeMime("application/octet-stream", "scan.PDF")).toBe("application/pdf");
+    expect(normalizeMime("", "export.XLSX")).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   });
 });
 
-describe.skipIf(!process.env.ANTHROPIC_API_KEY || fixtures.length === 0)("parseInvoiceDocument against fixtures/invoices/*.expected.json", () => {
+describe.skipIf(!isLlmConfigured() || fixtures.length === 0)("parseInvoiceDocument against fixtures/invoices/*.expected.json", () => {
   for (const fx of fixtures) {
     it(
       `${fx.name}: vendor, line count ±1, Σ extended ≈ subtotal`,

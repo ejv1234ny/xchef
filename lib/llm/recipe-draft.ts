@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { MODELS, runTool, type ToolCallResult } from "./anthropic";
+import { getProvider, toToolCallResult, type LlmProvider, type ToolCallResult } from "./provider";
 import { Constants, type Enums } from "@/lib/db/types";
 
 /** Inventory categories the drafter may propose for a new item. */
@@ -55,7 +55,7 @@ export type RecipeDraftInput = {
 
 export const RECIPE_DRAFT_TOOL = "draft_recipe";
 
-/** JSON schema handed to Claude as the tool's input_schema (runTool adds `type: object`). */
+/** JSON schema handed to Claude as the tool's input_schema (the Claude provider adds `type: object`; OpenAI derives a strict schema from zod). */
 export const RECIPE_DRAFT_INPUT_SCHEMA: Record<string, unknown> = {
   properties: {
     components: {
@@ -121,7 +121,7 @@ Rules:
  * One Sonnet call, forced tool use, zod-validated. Callers log it with
  * logLlmCall(kind: 'recipe-draft', ref_id: menuItem.id).
  */
-export async function draftRecipe(input: RecipeDraftInput): Promise<ToolCallResult<RecipeDraft>> {
+export async function draftRecipe(input: RecipeDraftInput, provider: LlmProvider = getProvider()): Promise<ToolCallResult<RecipeDraft>> {
   const payload = {
     menu_item: {
       name: input.menuItem.name,
@@ -131,19 +131,15 @@ export async function draftRecipe(input: RecipeDraftInput): Promise<ToolCallResu
     modifier_names: input.modifierNames,
     inventory: input.inventory.map((i) => ({ id: i.id, name: i.name, category: i.category, base_unit: i.base_unit })),
   };
-  return runTool<RecipeDraft>({
-    model: MODELS.sonnet,
+  const r = await provider.structured<RecipeDraft>({
+    task: "recipe-draft",
     system: RECIPE_DRAFT_SYSTEM,
-    content: [
-      {
-        type: "text",
-        text: `Draft the recipe for this menu item. Existing inventory is listed with ids; reuse them where they fit.\n\n${JSON.stringify(payload, null, 2)}`,
-      },
-    ],
-    toolName: RECIPE_DRAFT_TOOL,
-    toolDescription: "Record the ingredient components and quantities used per one sale of the menu item.",
-    inputSchema: RECIPE_DRAFT_INPUT_SCHEMA,
+    user: `Draft the recipe for this menu item. Existing inventory is listed with ids; reuse them where they fit.\n\n${JSON.stringify(payload, null, 2)}`,
     schema: RecipeDraftSchema,
+    schemaName: RECIPE_DRAFT_TOOL,
+    toolSchema: RECIPE_DRAFT_INPUT_SCHEMA,
+    toolDescription: "Record the ingredient components and quantities used per one sale of the menu item.",
     maxTokens: 4096,
   });
+  return toToolCallResult(r);
 }

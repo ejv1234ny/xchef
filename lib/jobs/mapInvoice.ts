@@ -1,7 +1,9 @@
 import Decimal from "decimal.js";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Tables } from "@/lib/db/types";
-import { isAnthropicConfigured, logLlmCall, MODELS } from "@/lib/llm/anthropic";
+import { logLlmCall } from "@/lib/llm/anthropic";
+import { isLlmConfigured, selectedProviderName } from "@/lib/llm/provider";
+import { modelFor } from "@/lib/llm/models";
 import { matchSku } from "@/lib/llm/sku-match";
 import { computeLineTotals, resolveLine, type InventoryRef, type LineInput, type MappingRef, type Resolution, type SkuMatch } from "@/lib/core/resolveMapping";
 import { isUom } from "@/lib/core/units";
@@ -109,7 +111,7 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
   const inventoryFull = inventoryRows ?? [];
   const inventory: InventoryRef[] = inventoryFull.filter((i) => isUom(i.base_unit)).map((i) => ({ id: i.id, name: i.name, base_unit: i.base_unit, pack_to_base_factor: i.pack_to_base_factor }));
   const vendorName = vendorRow?.name ?? "vendor";
-  const llmOk = isAnthropicConfigured();
+  const llmOk = isLlmConfigured();
 
   for (const line of lines) {
     if (line.status === "ignored") {
@@ -151,10 +153,10 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
           inventory: inventoryFull,
         });
         sm = res.data;
-        await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "sku-match", ref_id: line.id, model: MODELS.haiku, usage: res.usage, raw: res.raw });
+        await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "sku-match", ref_id: line.id, model: res.model, provider: res.provider, usage: res.usage, raw: res.raw });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "sku-match", ref_id: line.id, model: MODELS.haiku, error: msg });
+        await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "sku-match", ref_id: line.id, model: modelFor(selectedProviderName(), "sku-match"), provider: selectedProviderName(), error: msg });
         log("invoice-map: sku-match failed", { lineId: line.id, error: msg });
       }
       if (sm) r = resolveLine({ line: input, vendorId, mappings, inventory, skuMatch: sm });

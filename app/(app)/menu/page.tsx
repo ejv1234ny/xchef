@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getAppContext } from "@/lib/db/context";
 import { createServerSupabase } from "@/lib/db/server";
 import type { Tables } from "@/lib/db/types";
-import { isAnthropicConfigured } from "@/lib/llm/anthropic";
+import { isLlmConfigured } from "@/lib/llm/provider";
 import { Flash, StatusChip, fmtMoney, fmtPct } from "@/components/inventory-units";
 import { draftNextBatch } from "./actions";
 
@@ -63,7 +63,7 @@ export default async function MenuPage({ searchParams }: PageProps<"/menu">) {
   const items = rows.filter((r) => r.category !== "modifier");
   const modifiers = rows.filter((r) => r.category === "modifier");
   const withoutComponents = items.filter((r) => (r.component_count ?? 0) === 0).length;
-  const aiReady = isAnthropicConfigured();
+  const aiReady = isLlmConfigured();
 
   return (
     <div className="flex flex-col gap-6 py-4">

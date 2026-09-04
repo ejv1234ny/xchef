@@ -12,13 +12,13 @@ import "./_env";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { arg, hasFlag } from "./_env";
-import { isAnthropicConfigured } from "@/lib/llm/anthropic";
+import { isLlmConfigured } from "@/lib/llm/provider";
 import { normalizeMime, parseInvoiceDocument } from "@/lib/llm/invoice-parse";
 
 const EXTS = new Set([".pdf", ".jpg", ".jpeg", ".png"]);
 
 async function main() {
-  if (!isAnthropicConfigured()) {
+  if (!isLlmConfigured()) {
     console.error("ANTHROPIC_API_KEY is not set; cannot generate expected files.");
     process.exit(1);
   }

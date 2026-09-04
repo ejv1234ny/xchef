@@ -3,10 +3,10 @@ import { notFound } from "next/navigation";
 import { getAppContext } from "@/lib/db/context";
 import { createServerSupabase } from "@/lib/db/server";
 import { createServiceSupabase } from "@/lib/db/service";
-import { signedInvoiceUrl } from "@/lib/storage";
+import { ensurePdfPreview, signedInvoiceUrl } from "@/lib/storage";
 import { Constants, type Tables } from "@/lib/db/types";
 import { fmtDate, fmtMoney, fmtQty, fmtUnitCost, statusChipClass, statusLabel, Chip, Flash } from "@/components/ui-format";
-import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, setVendor, updateSheetLayout } from "./actions";
+import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, retryParse, setVendor, updateSheetLayout } from "./actions";
 import { isSpreadsheetExtraction, SheetReview } from "@/components/sheet-review";
 
 export const metadata = { title: "Review invoice" };
@@ -52,11 +52,18 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
   const sheet = kind === "sheet" && isSpreadsheetExtraction(doc.raw_extraction) ? doc.raw_extraction : null;
   // Service role is used here only to sign a short-lived URL for the private bucket.
   let fileUrl: string | null = null;
+  let previewUrl: string | null = null;
   if (kind !== "none" && kind !== "sheet") {
+    const svc = createServiceSupabase();
     try {
-      fileUrl = await signedInvoiceUrl(createServiceSupabase(), doc.storage_path, 600);
+      fileUrl = await signedInvoiceUrl(svc, doc.storage_path, 600);
+      if (kind === "pdf") {
+        // Older documents may predate previews; render on first view (cached in Storage afterwards).
+        const previewPath = await ensurePdfPreview(svc, doc.storage_path);
+        previewUrl = previewPath ? await signedInvoiceUrl(svc, previewPath, 600) : null;
+      }
     } catch {
-      fileUrl = null;
+      fileUrl = fileUrl ?? null;
     }
   }
 
@@ -100,7 +107,23 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
           ) : !fileUrl ? (
             <p className="p-4 text-sm text-neutral-600">File preview unavailable.</p>
           ) : kind === "pdf" ? (
-            <iframe src={fileUrl} title="Invoice PDF" className="h-full w-full" />
+            <div className="relative h-full w-full">
+              {/* Desktop / tablets: the PDF inline. Phones: the rendered first page (inline PDF embeds are unreliable there). */}
+              <object data={fileUrl} type="application/pdf" className="hidden h-full w-full md:block" aria-label="Invoice PDF">
+                <iframe src={fileUrl} title="Invoice PDF" className="h-full w-full" />
+              </object>
+              <div className="h-full w-full overflow-auto md:hidden">
+                {previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previewUrl} alt="Invoice, page 1" className="w-full" />
+                ) : (
+                  <iframe src={fileUrl} title="Invoice PDF" className="h-full w-full" />
+                )}
+              </div>
+              <a href={fileUrl} target="_blank" rel="noreferrer" className="absolute right-2 top-2 flex h-9 items-center rounded-lg bg-white/90 px-3 text-xs font-medium shadow">
+                Open PDF
+              </a>
+            </div>
           ) : kind === "image" ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={fileUrl} alt="Invoice" className="h-full w-full object-contain" />
@@ -148,6 +171,12 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
           </div>
         </dl>
         {doc.parse_error ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{doc.parse_error}</p> : null}
+        {doc.status === "needs_review" && allLines.length === 0 ? (
+          <form action={retryParse}>
+            <input type="hidden" name="document_id" value={doc.id} />
+            <button className={`${btnPrimary} w-full`}>Retry parse</button>
+          </form>
+        ) : null}
         <div className="flex gap-2">
           <form action={rerunMapping} className="flex-1">
             <input type="hidden" name="document_id" value={doc.id} />

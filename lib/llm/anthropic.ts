@@ -1,25 +1,21 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { z } from "zod";
+import { z } from "zod";
 import { env } from "@/lib/env";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Json } from "@/lib/db/types";
+import { costUsd, modelFor, MODELS, type LlmProviderName } from "./models";
+import type { LlmFile, LlmProvider, LlmUsage, StructuredInput, StructuredResult } from "./provider";
 
-/** Pinned model ids. Change here only, with a note in the commit message. */
-export const MODELS = {
-  sonnet: "claude-sonnet-5",
-  haiku: "claude-haiku-4-5-20251001",
-} as const;
+export { MODELS, costUsd };
 
-/** USD per million tokens, for the cost log only (not billing). */
-const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
-  [MODELS.sonnet]: { input: 2, output: 10 },
-  [MODELS.haiku]: { input: 1, output: 5 },
-};
-
+/**
+ * Claude provider: one forced tool-use call, temperature 0, output validated
+ * with zod. Kept as the alternative to OpenAI (LLM_PROVIDER=anthropic).
+ * Identity-linked keys need ANTHROPIC_WORKSPACE_ID (sent as a header).
+ */
 let client: Anthropic | undefined;
 export function getAnthropic(): Anthropic {
   if (!client) {
-    // Identity-linked API keys must name the workspace they act in.
     const workspaceId = process.env.ANTHROPIC_WORKSPACE_ID;
     client = new Anthropic({
       apiKey: env.anthropicApiKey(),
@@ -33,57 +29,62 @@ export function isAnthropicConfigured(): boolean {
   return env.has("ANTHROPIC_API_KEY");
 }
 
-export type ToolCallResult<T> = {
-  data: T;
-  raw: Anthropic.Message;
-  usage: { input_tokens: number; output_tokens: number; cost_usd: number };
-};
+type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+const IMAGE_MIMES: ReadonlySet<string> = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 
-export function costUsd(model: string, input: number, output: number): number {
-  const p = PRICE_PER_MTOK[model] ?? { input: 0, output: 0 };
-  return (input * p.input + output * p.output) / 1_000_000;
+function toBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
 }
 
-/**
- * One forced tool-use call, temperature 0, output validated with zod. Every
- * caller stores `raw` (via logLlmCall) so the extraction is auditable.
- */
-export async function runTool<T>(params: {
-  model: string;
-  system: string;
-  content: Anthropic.MessageParam["content"];
-  toolName: string;
-  toolDescription: string;
-  inputSchema: Record<string, unknown>;
-  schema: z.ZodType<T>;
-  maxTokens?: number;
-}): Promise<ToolCallResult<T>> {
-  const anthropic = getAnthropic();
-  const message = await anthropic.messages.create({
-    model: params.model,
-    max_tokens: params.maxTokens ?? 8192,
-    temperature: 0,
-    system: params.system,
-    tools: [
-      {
-        name: params.toolName,
-        description: params.toolDescription,
-        input_schema: { type: "object" as const, ...params.inputSchema },
-      },
-    ],
-    tool_choice: { type: "tool", name: params.toolName },
-    messages: [{ role: "user", content: params.content }],
-  });
-  const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-  if (!block) throw new Error(`No tool_use block from ${params.model}`);
-  const data = params.schema.parse(block.input);
-  const usage = {
-    input_tokens: message.usage.input_tokens,
-    output_tokens: message.usage.output_tokens,
-    cost_usd: costUsd(params.model, message.usage.input_tokens, message.usage.output_tokens),
+export function fileBlocks(files: LlmFile[] | undefined): Anthropic.ContentBlockParam[] {
+  const blocks: Anthropic.ContentBlockParam[] = [];
+  for (const f of files ?? []) {
+    const mime = f.mimeType.toLowerCase().split(";")[0].trim();
+    if (mime === "application/pdf") blocks.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data: toBase64(f.bytes) } });
+    else if (IMAGE_MIMES.has(mime)) blocks.push({ type: "image", source: { type: "base64", media_type: mime as ImageMime, data: toBase64(f.bytes) } });
+    else blocks.push({ type: "text", text: `File ${f.name} (${mime}):\n${Buffer.from(f.bytes).toString("utf8")}` });
+  }
+  return blocks;
+}
+
+export function createAnthropicProvider(opts: { apiKey?: string; fetch?: typeof fetch } = {}): LlmProvider {
+  let own: Anthropic | undefined;
+  const getClient = () => {
+    if (opts.apiKey || opts.fetch) {
+      if (!own) own = new Anthropic({ apiKey: opts.apiKey ?? env.anthropicApiKey(), fetch: opts.fetch });
+      return own;
+    }
+    return getAnthropic();
   };
-  console.log(JSON.stringify({ msg: "llm-call", tool: params.toolName, model: params.model, ...usage }));
-  return { data, raw: message, usage };
+  return {
+    name: "anthropic",
+    async structured<T>(input: StructuredInput<T>): Promise<StructuredResult<T>> {
+      const model = input.model ?? modelFor("anthropic", input.task);
+      const inputSchema = input.toolSchema ?? (z.toJSONSchema(input.schema, { target: "draft-7", unrepresentable: "any" }) as Record<string, unknown>);
+      const { type: _t, $schema: _s, ...rest } = inputSchema as { type?: unknown; $schema?: unknown } & Record<string, unknown>;
+      void _t;
+      void _s;
+      const message = await getClient().messages.create({
+        model,
+        max_tokens: input.maxTokens ?? 8192,
+        temperature: 0,
+        system: input.system,
+        tools: [{ name: input.schemaName, description: input.toolDescription ?? `Return ${input.schemaName}.`, input_schema: { type: "object" as const, ...rest } }],
+        tool_choice: { type: "tool", name: input.schemaName },
+        messages: [{ role: "user", content: [...fileBlocks(input.files), { type: "text", text: input.user }] }],
+      });
+      const block = message.content.find((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
+      if (!block) throw new Error(`No tool_use block from ${model}`);
+      const json = input.schema.parse(block.input);
+      const usage: LlmUsage = {
+        input_tokens: message.usage.input_tokens,
+        output_tokens: message.usage.output_tokens,
+        cost_usd: costUsd(model, message.usage.input_tokens, message.usage.output_tokens),
+      };
+      console.log(JSON.stringify({ msg: "llm-call", provider: "anthropic", task: input.task, model, ...usage }));
+      return { json, raw: message, usage, model, provider: "anthropic" };
+    },
+  };
 }
 
 /** Persist the raw output + cost of a call to llm_calls (service role). */
@@ -94,7 +95,8 @@ export async function logLlmCall(
     kind: "recipe-draft" | "invoice-parse" | "sku-match" | "sheet-map";
     ref_id?: string | null;
     model: string;
-    usage?: ToolCallResult<unknown>["usage"];
+    provider?: LlmProviderName;
+    usage?: LlmUsage;
     raw?: unknown;
     error?: string | null;
   },
@@ -104,6 +106,7 @@ export async function logLlmCall(
     kind: entry.kind,
     ref_id: entry.ref_id ?? null,
     model: entry.model,
+    provider: entry.provider ?? (entry.model.startsWith("gpt") ? "openai" : "anthropic"),
     input_tokens: entry.usage?.input_tokens ?? 0,
     output_tokens: entry.usage?.output_tokens ?? 0,
     cost_usd: entry.usage?.cost_usd ?? null,

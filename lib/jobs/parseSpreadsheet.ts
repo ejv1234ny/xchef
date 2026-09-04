@@ -1,7 +1,9 @@
 import Decimal from "decimal.js";
 import type { ServiceClient } from "@/lib/db/service";
 import type { Database, Json, Tables } from "@/lib/db/types";
-import { isAnthropicConfigured, logLlmCall, MODELS } from "@/lib/llm/anthropic";
+import { logLlmCall } from "@/lib/llm/anthropic";
+import { isLlmConfigured, selectedProviderName } from "@/lib/llm/provider";
+import { modelFor } from "@/lib/llm/models";
 import { mapSheetColumns } from "@/lib/llm/sheet-map";
 import {
   columnMapIsUsable,
@@ -110,10 +112,10 @@ async function resolveLayout(
     return { id: row?.id ?? null, source: "builtin", map: known.map, confidence: 1, label: known.label, vendorName: known.vendor, meta: known.meta?.(ctx.rows, ctx.headerIdx), footer: known.footer };
   }
 
-  if (isAnthropicConfigured()) {
+  if (isLlmConfigured()) {
     try {
       const ai = await mapSheetColumns({ headerCells, sampleRows, filename: ctx.filename, sheetName: ctx.sheetName });
-      await logLlmCall(svc, { tenant_id: tenantId, kind: "sheet-map", ref_id: ctx.documentId, model: MODELS.haiku, usage: ai.usage, raw: ai.raw });
+      await logLlmCall(svc, { tenant_id: tenantId, kind: "sheet-map", ref_id: ctx.documentId, model: ai.model, provider: ai.provider, usage: ai.usage, raw: ai.raw });
       if (columnMapIsUsable(ai.columnMap)) {
         const { data: row } = await svc
           .from("vendor_sheet_layouts")
@@ -125,7 +127,7 @@ async function resolveLayout(
       log("sheet-parse: ai map unusable, falling back to heuristic", { documentId: ctx.documentId });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      await logLlmCall(svc, { tenant_id: tenantId, kind: "sheet-map", ref_id: ctx.documentId, model: MODELS.haiku, error: msg });
+      await logLlmCall(svc, { tenant_id: tenantId, kind: "sheet-map", ref_id: ctx.documentId, model: modelFor(selectedProviderName(), "sheet-map"), provider: selectedProviderName(), error: msg });
       log("sheet-parse: ai map failed, falling back to heuristic", { documentId: ctx.documentId, error: msg });
     }
   }
