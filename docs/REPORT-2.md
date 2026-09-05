@@ -101,7 +101,8 @@ Filled in by the final run before the commit: `pnpm test`, `pnpm typecheck`, `pn
 | `pnpm typecheck` (`next typegen && tsc --noEmit`) | clean |
 | `pnpm lint` | clean |
 | `pnpm build` | compiled; 17 static pages generated; new routes `/position`, `/api/cron/daily-position`, `/api/cron/quote-requests` present |
-| Vercel | see the deployment line appended below after push |
+| Vercel | commit `0be6edf` deployed to production, state **Ready** (deployment `dpl_DR8hyVLGaDKvEC7apPmgoTpaMGVu`, https://xchef.vercel.app) |
+| Production smoke | `/api/cron/daily-position` and `/api/cron/quote-requests` answer 401 without the secret; a manual daily-position run in production computed 2026-09-04 for 236 items with 0 errors in 362 ms; `POST /api/intake/upload` with a wrong `x-intake-key` → 401; `pnpm portal:pull --dry` against production created → deduped → attached one synthetic document and cleaned it up; ingredient unit costs unchanged afterwards (checked against the latest real posted line). |
 
 ## 10. Manual commands (cmd)
 
