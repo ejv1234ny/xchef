@@ -16,6 +16,7 @@
     "recipes:draft": "tsx scripts/recipes-draft.ts",
     "invoices:replay": "tsx scripts/invoices-replay.ts",
     "invoices:reparse": "tsx scripts/invoices-reparse.ts",
+    "invoices:remap": "tsx scripts/invoices-remap.ts",
     "invoices:import-xlsx": "tsx scripts/import-spreadsheet.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "db:push": "supabase db push",
@@ -48,7 +49,6 @@
     "eslint-config-next": "16.3.4",
     "supabase": "^2.116.0",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
     "typescript": "^5",
     "vitest": "^5.0.0"
   },

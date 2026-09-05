@@ -24,9 +24,11 @@ export { postInvoiceIfResolved, type PostResult } from "./postInvoice";
  *  - 'confirmed' and 'ignored' lines are never overwritten. A 'confirmed' line
  *    whose totals are missing (the UI set mapping_id + confirmed) gets its
  *    quantity_base_unit / cost_per_base_unit filled from its mapping.
- *  - Lines left 'unmapped' keep the AI's suggested inventory_item_id (status
- *    stays unmapped, so views ignore it); the full suggestion is in llm_calls
- *    (kind 'sku-match', ref_id = line id).
+ *  - A 'new' verdict with a known pack size creates the inventory item from the
+ *    invoice line (the invoice is the catalog) and auto-maps to it.
+ *  - Lines left 'unmapped' (low-confidence existing match, or unknown pack) keep
+ *    the AI's suggested inventory_item_id (status stays unmapped, so views ignore
+ *    it); the full suggestion is in llm_calls (kind 'sku-match', ref_id = line id).
  */
 export type MapResult = { mapped: number; unmapped: number; ignored: number };
 
@@ -76,6 +78,43 @@ async function ensureMapping(
   }
   const { data: byDesc } = await svc.from("vendor_item_mappings").select("id").eq("vendor_id", vendorId).eq("description_norm", proposal.description_norm).maybeSingle();
   return byDesc?.id ?? null;
+}
+
+type InventoryRow = { id: string; name: string; category: string | null; base_unit: string; pack_to_base_factor: number | null };
+
+/**
+ * Create the ingredient an invoice line describes, or reuse one that already
+ * exists under the same name (case-insensitive) so repeated lines on the same
+ * invoice, or the same product from two vendors, share one item. The new
+ * item's pack_to_base_factor is this vendor's pack (base units per case);
+ * the owner can change it later, mappings keep their own per-vendor pack.
+ */
+async function ensureInventoryItem(
+  svc: ServiceClient,
+  tenantId: string,
+  proposal: NonNullable<Resolution["proposed_new_item"]>,
+  pack: NonNullable<Resolution["proposed_mapping"]>,
+  inventoryFull: InventoryRow[],
+): Promise<(InventoryRow & { fresh: boolean }) | null> {
+  const name = proposal.name.trim();
+  if (!name) return null;
+  const existing = inventoryFull.find((i) => i.name.trim().toLowerCase() === name.toLowerCase());
+  if (existing) return { ...existing, fresh: false };
+  const packToBase = new Decimal(pack.units_per_pack).times(pack.base_units_per_unit);
+  const { data, error } = await svc
+    .from("inventory_items")
+    .insert({
+      tenant_id: tenantId,
+      name,
+      category: proposal.category || null,
+      base_unit: proposal.base_unit,
+      pack_to_base_factor: Number(packToBase.toFixed(4)),
+    })
+    .select("id, name, category, base_unit, pack_to_base_factor")
+    .single();
+  if (error) return null;
+  inventoryFull.push(data);
+  return { ...data, fresh: true };
 }
 
 export async function mapInvoiceDocument(svc: ServiceClient, documentId: string, opts: { log?: Logger } = {}): Promise<MapResult> {
@@ -174,6 +213,27 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
         log("invoice-map: sku-match failed", { lineId: line.id, error: msg });
       }
       if (sm) r = resolveLine({ line: input, vendorId, mappings, inventory, skuMatch: sm });
+    }
+
+    // The invoice IS the catalog: a line the AI calls "new" with a known pack
+    // size creates the ingredient right here (name/category/base unit from the
+    // matcher, pack from the invoice) and auto-maps to it. The mapping row is
+    // unconfirmed, so the review screen can still rename or remap in one tap.
+    if (r.status === "unmapped" && r.proposed_new_item && r.proposed_mapping) {
+      const created = await ensureInventoryItem(svc, location.tenant_id, r.proposed_new_item, r.proposed_mapping, inventoryFull);
+      if (created) {
+        if (isUom(created.base_unit)) inventory.push({ id: created.id, name: created.name, base_unit: created.base_unit, pack_to_base_factor: created.pack_to_base_factor });
+        const totals = computeLineTotals(input, new Decimal(r.proposed_mapping.units_per_pack), new Decimal(r.proposed_mapping.base_units_per_unit), false);
+        r = {
+          ...r,
+          status: "auto_mapped",
+          inventory_item_id: created.id,
+          units_per_pack: r.proposed_mapping.units_per_pack,
+          base_units_per_unit: r.proposed_mapping.base_units_per_unit,
+          ...totals,
+          reason: `${created.fresh ? "created" : "reused"} ingredient "${created.name}" (${created.base_unit}) from this invoice line — ${r.reason}`,
+        };
+      }
     }
 
     let mappingId = r.mapping_id;
