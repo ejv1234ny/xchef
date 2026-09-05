@@ -15,6 +15,129 @@ export type Database = {
   }
   public: {
     Tables: {
+      daily_position: {
+        Row: {
+          business_date: string
+          computed_at: string
+          cost_per_base_unit: number | null
+          counted_qty: number | null
+          expected_close_qty: number
+          id: string
+          included_count_id: string | null
+          included_invoice_ids: string[]
+          inventory_item_id: string
+          last_verified_at: string | null
+          location_id: string
+          opening_qty: number
+          received_qty: number
+          restated_at: string | null
+          restatement_reason: string | null
+          theoretical_used_qty: number
+          variance_qty: number | null
+          variance_value: number | null
+          verification: string
+        }
+        Insert: {
+          business_date: string
+          computed_at?: string
+          cost_per_base_unit?: number | null
+          counted_qty?: number | null
+          expected_close_qty?: number
+          id?: string
+          included_count_id?: string | null
+          included_invoice_ids?: string[]
+          inventory_item_id: string
+          last_verified_at?: string | null
+          location_id: string
+          opening_qty?: number
+          received_qty?: number
+          restated_at?: string | null
+          restatement_reason?: string | null
+          theoretical_used_qty?: number
+          variance_qty?: number | null
+          variance_value?: number | null
+          verification?: string
+        }
+        Update: {
+          business_date?: string
+          computed_at?: string
+          cost_per_base_unit?: number | null
+          counted_qty?: number | null
+          expected_close_qty?: number
+          id?: string
+          included_count_id?: string | null
+          included_invoice_ids?: string[]
+          inventory_item_id?: string
+          last_verified_at?: string | null
+          location_id?: string
+          opening_qty?: number
+          received_qty?: number
+          restated_at?: string | null
+          restatement_reason?: string | null
+          theoretical_used_qty?: number
+          variance_qty?: number | null
+          variance_value?: number | null
+          verification?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_position_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_position_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "daily_position_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "daily_position_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "daily_position_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "daily_position_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "daily_position_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "daily_position_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
       inbound_events: {
         Row: {
           attachment_count: number
@@ -138,8 +261,10 @@ export type Database = {
       }
       invoice_documents: {
         Row: {
+          clean_storage_path: string | null
           content_hash: string | null
           created_at: string
+          document_kind: string | null
           email_from: string | null
           email_message_id: string | null
           email_subject: string | null
@@ -149,6 +274,7 @@ export type Database = {
           invoice_time: string | null
           location_id: string
           parse_confidence: number | null
+          parse_diff: Json | null
           parse_error: string | null
           posted_at: string | null
           printed_item_count: number | null
@@ -163,10 +289,13 @@ export type Database = {
           total: number | null
           transaction_code: string | null
           vendor_id: string | null
+          verified_by_clean_copy_at: string | null
         }
         Insert: {
+          clean_storage_path?: string | null
           content_hash?: string | null
           created_at?: string
+          document_kind?: string | null
           email_from?: string | null
           email_message_id?: string | null
           email_subject?: string | null
@@ -176,6 +305,7 @@ export type Database = {
           invoice_time?: string | null
           location_id: string
           parse_confidence?: number | null
+          parse_diff?: Json | null
           parse_error?: string | null
           posted_at?: string | null
           printed_item_count?: number | null
@@ -190,10 +320,13 @@ export type Database = {
           total?: number | null
           transaction_code?: string | null
           vendor_id?: string | null
+          verified_by_clean_copy_at?: string | null
         }
         Update: {
+          clean_storage_path?: string | null
           content_hash?: string | null
           created_at?: string
+          document_kind?: string | null
           email_from?: string | null
           email_message_id?: string | null
           email_subject?: string | null
@@ -203,6 +336,7 @@ export type Database = {
           invoice_time?: string | null
           location_id?: string
           parse_confidence?: number | null
+          parse_diff?: Json | null
           parse_error?: string | null
           posted_at?: string | null
           printed_item_count?: number | null
@@ -217,6 +351,7 @@ export type Database = {
           total?: number | null
           transaction_code?: string | null
           vendor_id?: string | null
+          verified_by_clean_copy_at?: string | null
         }
         Relationships: [
           {
@@ -372,13 +507,6 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "vendor_item_mappings"
             referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_mapping_id_fkey"
-            columns: ["mapping_id"]
-            isOneToOne: false
-            referencedRelation: "vendor_price_comparison"
-            referencedColumns: ["mapping_id"]
           },
           {
             foreignKeyName: "invoice_lines_mapping_id_fkey"
@@ -546,6 +674,105 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      quote_requests: {
+        Row: {
+          created_at: string
+          id: string
+          items: Json
+          location_id: string | null
+          reply_document_id: string | null
+          resend_message_id: string | null
+          sent_at: string
+          status: string
+          tenant_id: string
+          token: string
+          vendor_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          items?: Json
+          location_id?: string | null
+          reply_document_id?: string | null
+          resend_message_id?: string | null
+          sent_at?: string
+          status?: string
+          tenant_id: string
+          token: string
+          vendor_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          items?: Json
+          location_id?: string | null
+          reply_document_id?: string | null
+          resend_message_id?: string | null
+          sent_at?: string
+          status?: string
+          tenant_id?: string
+          token?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quote_requests_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_requests_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "quote_requests_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "quote_requests_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "quote_requests_reply_document_id_fkey"
+            columns: ["reply_document_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_requests_reply_document_id_fkey"
+            columns: ["reply_document_id"]
+            isOneToOne: false
+            referencedRelation: "item_price_history"
+            referencedColumns: ["invoice_id"]
+          },
+          {
+            foreignKeyName: "quote_requests_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quote_requests_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
             referencedColumns: ["id"]
           },
         ]
@@ -892,16 +1119,19 @@ export type Database = {
       }
       tenants: {
         Row: {
+          concept: string | null
           created_at: string
           id: string
           name: string
         }
         Insert: {
+          concept?: string | null
           created_at?: string
           id?: string
           name: string
         }
         Update: {
+          concept?: string | null
           created_at?: string
           id?: string
           name?: string
@@ -1114,6 +1344,153 @@ export type Database = {
           },
         ]
       }
+      vendor_quotes: {
+        Row: {
+          base_units_per_unit: number | null
+          cost_per_base_unit: number | null
+          created_at: string
+          description: string
+          id: string
+          inventory_item_id: string | null
+          mapping_id: string | null
+          min_quantity: number | null
+          pack_description: string | null
+          quote_request_id: string | null
+          quoted_unit_price: number | null
+          received_at: string
+          source_document_id: string | null
+          special_terms: string | null
+          tenant_id: string
+          units_per_pack: number
+          valid_from: string | null
+          valid_through: string | null
+          vendor_id: string
+          vendor_sku: string | null
+        }
+        Insert: {
+          base_units_per_unit?: number | null
+          cost_per_base_unit?: number | null
+          created_at?: string
+          description: string
+          id?: string
+          inventory_item_id?: string | null
+          mapping_id?: string | null
+          min_quantity?: number | null
+          pack_description?: string | null
+          quote_request_id?: string | null
+          quoted_unit_price?: number | null
+          received_at?: string
+          source_document_id?: string | null
+          special_terms?: string | null
+          tenant_id: string
+          units_per_pack?: number
+          valid_from?: string | null
+          valid_through?: string | null
+          vendor_id: string
+          vendor_sku?: string | null
+        }
+        Update: {
+          base_units_per_unit?: number | null
+          cost_per_base_unit?: number | null
+          created_at?: string
+          description?: string
+          id?: string
+          inventory_item_id?: string | null
+          mapping_id?: string | null
+          min_quantity?: number | null
+          pack_description?: string | null
+          quote_request_id?: string | null
+          quoted_unit_price?: number | null
+          received_at?: string
+          source_document_id?: string | null
+          special_terms?: string | null
+          tenant_id?: string
+          units_per_pack?: number
+          valid_from?: string | null
+          valid_through?: string | null
+          vendor_id?: string
+          vendor_sku?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_item_mappings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_price_latest"
+            referencedColumns: ["mapping_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_quote_request_id_fkey"
+            columns: ["quote_request_id"]
+            isOneToOne: false
+            referencedRelation: "quote_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "item_price_history"
+            referencedColumns: ["invoice_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendor_sheet_layouts: {
         Row: {
           column_map: Json
@@ -1173,6 +1550,7 @@ export type Database = {
       }
       vendors: {
         Row: {
+          contact_email: string | null
           created_at: string
           email_domains: string[] | null
           id: string
@@ -1181,6 +1559,7 @@ export type Database = {
           tenant_id: string
         }
         Insert: {
+          contact_email?: string | null
           created_at?: string
           email_domains?: string[] | null
           id?: string
@@ -1189,6 +1568,7 @@ export type Database = {
           tenant_id: string
         }
         Update: {
+          contact_email?: string | null
           created_at?: string
           email_domains?: string[] | null
           id?: string
@@ -1284,6 +1664,26 @@ export type Database = {
             referencedColumns: ["location_id"]
           },
         ]
+      }
+      forward_price_model: {
+        Row: {
+          base_unit: Database["public"]["Enums"]["uom"] | null
+          basis: string | null
+          best_quoted_cost: number | null
+          expected_next_cost: number | null
+          inventory_item_id: string | null
+          inventory_item_name: string | null
+          last_invoiced_at: string | null
+          last_invoiced_cost: number | null
+          quote_valid_through: string | null
+          quoted_base_units_per_pack: number | null
+          quoted_pack: string | null
+          tenant_id: string | null
+          trend_30d_pct: number | null
+          vendor_id: string | null
+          vendor_name: string | null
+        }
+        Relationships: []
       }
       item_price_history: {
         Row: {
@@ -1665,9 +2065,12 @@ export type Database = {
         Row: {
           base_unit: Database["public"]["Enums"]["uom"] | null
           base_units_per_pack: number | null
+          basis: string | null
           best_cost_per_base_unit: number | null
+          best_quoted_cost: number | null
           brand: string | null
           cost_per_base_unit: number | null
+          expected_next_cost: number | null
           inventory_item_id: string | null
           inventory_item_name: string | null
           is_cheapest: boolean | null
@@ -1678,55 +2081,13 @@ export type Database = {
           premium_per_base_unit: number | null
           price_date: string | null
           price_per_pack: number | null
+          quote_valid_through: string | null
           tenant_id: string | null
           vendor_id: string | null
           vendor_name: string | null
           vendor_sku: string | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "inventory_items_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "inventory_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "on_hand_estimate"
-            referencedColumns: ["inventory_item_id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "unit_cogs_master"
-            referencedColumns: ["inventory_item_id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "verification_queue"
-            referencedColumns: ["inventory_item_id"]
-          },
-          {
-            foreignKeyName: "vendor_item_mappings_vendor_id_fkey"
-            columns: ["vendor_id"]
-            isOneToOne: false
-            referencedRelation: "vendors"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       vendor_price_latest: {
         Row: {
@@ -1790,12 +2151,109 @@ export type Database = {
           },
         ]
       }
+      vendor_quotes_latest: {
+        Row: {
+          base_units_per_pack: number | null
+          base_units_per_unit: number | null
+          cost_per_base_unit: number | null
+          description: string | null
+          inventory_item_id: string | null
+          mapping_id: string | null
+          min_quantity: number | null
+          pack_description: string | null
+          quoted_unit_price: number | null
+          received_at: string | null
+          source_document_id: string | null
+          special_terms: string | null
+          tenant_id: string | null
+          units_per_pack: number | null
+          valid_from: string | null
+          valid_through: string | null
+          vendor_id: string | null
+          vendor_sku: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_item_mappings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_mapping_id_fkey"
+            columns: ["mapping_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_price_latest"
+            referencedColumns: ["mapping_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "invoice_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "item_price_history"
+            referencedColumns: ["invoice_id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_quotes_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "vendors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       vendor_switch_savings: {
         Row: {
           base_unit: Database["public"]["Enums"]["uom"] | null
+          cheapest_basis: string | null
           cheapest_cost: number | null
           cheapest_pack: string | null
+          cheapest_quote_valid_through: string | null
           cheapest_vendor: string | null
+          current_basis: string | null
           current_cost: number | null
           current_pack: string | null
           current_vendor: string | null
@@ -1807,36 +2265,7 @@ export type Database = {
           savings_annualized: number | null
           used_30d: number | null
         }
-        Relationships: [
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "inventory_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "on_hand_estimate"
-            referencedColumns: ["inventory_item_id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "unit_cogs_master"
-            referencedColumns: ["inventory_item_id"]
-          },
-          {
-            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "verification_queue"
-            referencedColumns: ["inventory_item_id"]
-          },
-        ]
+        Relationships: []
       }
       verification_queue: {
         Row: {

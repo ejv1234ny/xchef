@@ -2,6 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import type { ServiceClient } from "@/lib/db/service";
 import { createInvoiceDocument, runInvoicePipeline, type IntakeSource, type Logger } from "@/lib/jobs/intake";
+import { findQuoteRequestByToken, ingestQuoteDocument, isQuoteDocument, markQuoteDocuments } from "@/lib/jobs/quoteIngest";
+import { extractQuoteToken } from "@/lib/core/quotes";
 import { normalizeMime } from "@/lib/llm/invoice-parse";
 import { maxBytesFor } from "@/lib/storage";
 import { extractEmail, forwardedSender, guessVendorFromSender, htmlToText, isForwardedSubject, isUsableAttachment, resolveInboundLocation } from "./shared";
@@ -12,6 +14,14 @@ import { extractEmail, forwardedSender, guessVendorFromSender, htmlToText, isFor
  * runs in `after()`: attachments are fetched through Resend's API, hashed and
  * handed to the same intake function every other channel uses, then parse →
  * map → post. Every delivery is recorded in inbound_events.
+ *
+ * Quote replies (KICKOFF-2 Part 3): a message whose subject — or, for a
+ * "Re:" reply, whose body / In-Reply-To — carries a [Q-…] token is a vendor's
+ * answer to a pricing request. Its documents are flagged document_kind =
+ * 'quote' and linked to the quote_requests row before parsing, and after the
+ * pipeline their mapped lines are written to vendor_quotes (never purchases).
+ * A price list that arrives without a token is caught the same way when the
+ * parser itself says document_kind = 'quote'.
  */
 
 // ---- Svix signature ---------------------------------------------------------
@@ -81,8 +91,8 @@ export type ResendReceived = z.infer<typeof ResendReceivedData>;
 export type ResendApi = {
   /** GET /emails/receiving/{email_id}/attachments/{attachment_id} → { download_url, filename, content_type } */
   getAttachment: (emailId: string, attachmentId: string) => Promise<{ download_url: string; filename?: string | null; content_type?: string | null }>;
-  /** GET /emails/receiving/{email_id} → { html, text } */
-  getEmail: (emailId: string) => Promise<{ html?: string | null; text?: string | null }>;
+  /** GET /emails/receiving/{email_id} → { html, text, headers? } (headers when Resend exposes them; In-Reply-To is read from there) */
+  getEmail: (emailId: string) => Promise<{ html?: string | null; text?: string | null; headers?: Array<{ name: string; value: string }> | Record<string, string> | null; in_reply_to?: string | null }>;
   /** fetch an attachment's bytes from its download_url */
   download: (url: string) => Promise<Uint8Array>;
 };
@@ -114,7 +124,24 @@ export type ProcessResult = {
   locationId: string | null;
   documents: Array<{ documentId: string; duplicate: boolean; name: string }>;
   errors: string[];
+  /** [Q-…] token found on the message, when it is a quote reply */
+  quoteToken: string | null;
 };
+
+/** "Re:", "RE:", "AW:" (German clients), "SV:" — a reply, where the token may live only in the quoted body. */
+export function isReplySubject(subject: string | undefined | null): boolean {
+  return /^\s*(re|aw|sv|antw)\s*:/i.test(subject ?? "");
+}
+
+/** In-Reply-To header from the shapes Resend may return. */
+export function inReplyToOf(email: { headers?: Array<{ name: string; value: string }> | Record<string, string> | null; in_reply_to?: string | null }): string | null {
+  if (email.in_reply_to) return email.in_reply_to;
+  const h = email.headers;
+  if (!h) return null;
+  if (Array.isArray(h)) return h.find((x) => x.name.toLowerCase() === "in-reply-to")?.value ?? null;
+  const key = Object.keys(h).find((k) => k.toLowerCase() === "in-reply-to");
+  return key ? h[key] : null;
+}
 
 /**
  * Handle one `email.received`. Records an inbound_events row no matter what
@@ -156,24 +183,40 @@ export async function processResendEmail(svc: ServiceClient, api: ResendApi, dat
   if (!location) {
     log("resend: no location", { to, emailId: data.email_id });
     const eventId = await record({ error: "no location for address" });
-    return { eventId, locationId: null, documents, errors: ["no location"] };
+    return { eventId, locationId: null, documents, errors: ["no location"], quoteToken: null };
   }
   locationId = location.id;
 
-  // Forwarded mail: recover the original sender from the body when we can.
+  // Quote reply? The token is normally in the subject; for a "Re:" without one, look in the body / In-Reply-To.
+  let quoteToken = extractQuoteToken(data.subject);
   let emailFrom = senderRaw;
   let bodyText: string | null = null;
-  if (forward) {
+  const needBody = forward || (!quoteToken && isReplySubject(data.subject));
+  if (needBody) {
     try {
       const body = await api.getEmail(data.email_id);
       bodyText = body.text?.trim() || (body.html ? htmlToText(body.html) : null);
-      emailFrom = forwardedSender(bodyText) ?? senderRaw;
+      // Forwarded mail: recover the original sender from the body when we can.
+      if (forward) emailFrom = forwardedSender(bodyText) ?? senderRaw;
+      if (!quoteToken) {
+        quoteToken = extractQuoteToken(bodyText);
+        const inReplyTo = inReplyToOf(body);
+        if (!quoteToken && inReplyTo) {
+          // Resend's Message-ID for a sent email carries its id: <{resend_message_id}@…>
+          const idPart = inReplyTo.replace(/^\s*<|>\s*$/g, "").split("@")[0];
+          if (idPart) {
+            const { data: req } = await svc.from("quote_requests").select("token").eq("resend_message_id", idPart).maybeSingle();
+            quoteToken = req?.token ?? null;
+          }
+        }
+      }
     } catch (e) {
       errors.push(`body: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  const quoteRequest = quoteToken ? await findQuoteRequestByToken(svc, quoteToken).catch(() => null) : null;
   const source: IntakeSource = forward ? "forward" : "email";
-  const vendorId = await guessVendorFromSender(svc, location.tenant_id, emailFrom);
+  const vendorId = (await guessVendorFromSender(svc, location.tenant_id, emailFrom)) ?? quoteRequest?.vendor_id ?? null;
 
   const usable = (data.attachments ?? []).filter((a) => isUsableAttachment(a.filename, a.content_type));
   for (const a of usable) {
@@ -234,14 +277,28 @@ export async function processResendEmail(svc: ServiceClient, api: ResendApi, dat
     }
   }
 
+  const fresh = documents.filter((d) => !d.duplicate).map((d) => d.documentId);
+  if (quoteToken && fresh.length) {
+    try {
+      await markQuoteDocuments(svc, fresh, quoteToken, log);
+    } catch (e) {
+      errors.push(`quote: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   const eventId = await record({});
-  log("resend: received", { emailId: data.email_id, location: location.name, from: emailFrom, source, subject: data.subject, attachments: usable.length, documents: documents.length, errors });
+  log("resend: received", { emailId: data.email_id, location: location.name, from: emailFrom, source, subject: data.subject, quoteToken, attachments: usable.length, documents: documents.length, errors });
 
   if (opts.runPipeline !== false) {
     for (const d of documents.filter((d) => !d.duplicate)) {
       try {
         const r = await runInvoicePipeline(svc, d.documentId, { log });
         log("resend: pipeline done", { documentId: d.documentId, ...r });
+        // Quote replies (token) and unsolicited price lists (parser said 'quote'): mapped lines → vendor_quotes.
+        if (r.status !== "deleted" && (quoteToken || (await isQuoteDocument(svc, d.documentId)))) {
+          const q = await ingestQuoteDocument(svc, d.documentId, { log });
+          log("resend: quote ingested", { documentId: d.documentId, quotes: q.reduce((a, x) => a + x.quotes, 0), documents: q.length });
+        }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         log("resend: pipeline failed", { documentId: d.documentId, error: msg });
@@ -249,5 +306,5 @@ export async function processResendEmail(svc: ServiceClient, api: ResendApi, dat
       }
     }
   }
-  return { eventId, locationId, documents, errors };
+  return { eventId, locationId, documents, errors, quoteToken };
 }

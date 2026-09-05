@@ -31,6 +31,8 @@ export const MAX_ATTEMPTS = 3;
 const SCAN_TEXT_CHARS_PER_PAGE = 40;
 
 export function isRejectedDocument(doc: InvoiceParsedDocument): string | null {
+  // A vendor price quote is not a purchase, but it is kept: lib/jobs/quoteIngest.ts writes vendor_quotes from it.
+  if (doc.document_kind === "quote") return null;
   if (!doc.is_invoice) return "not an invoice";
   if (doc.document_kind === "statement" || doc.document_kind === "other") return `document is a ${doc.document_kind}`;
   return null;

@@ -9,6 +9,7 @@ import { fmtDate, fmtMoney, fmtQty, fmtUnitCost, statusChipClass, statusLabel, C
 import { approveAutoMapping, confirmLine, ignoreLine, rejectDocument, rerunMapping, retryParse, setLineSize, setVendor, updateSheetLayout } from "./actions";
 import { BOTTLE_SIZE_CHOICES } from "@/lib/core/liquor";
 import { isSpreadsheetExtraction, SheetReview } from "@/components/sheet-review";
+import type { ParseDiff } from "@/lib/jobs/intake";
 
 export const metadata = { title: "Review invoice" };
 
@@ -67,6 +68,16 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
       fileUrl = fileUrl ?? null;
     }
   }
+  // Vendor-portal pull: the clean copy attached to this (paper) document, and what differed.
+  let cleanUrl: string | null = null;
+  if (doc.clean_storage_path) {
+    try {
+      cleanUrl = await signedInvoiceUrl(createServiceSupabase(), doc.clean_storage_path, 600);
+    } catch {
+      cleanUrl = null;
+    }
+  }
+  const parseDiff = isParseDiff(doc.parse_diff) ? doc.parse_diff : null;
 
   const itemById = new Map((items ?? []).map((i) => [i.id, i]));
   const mappingById = new Map((mappings ?? []).map((m) => [m.id, m]));
@@ -192,6 +203,7 @@ export default async function ReviewPage({ params, searchParams }: PageProps<"/i
           </div>
         </dl>
         {doc.parse_error ? <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{doc.parse_error}</p> : null}
+        {doc.clean_storage_path || parseDiff ? <PortalPanel cleanUrl={cleanUrl} verifiedAt={doc.verified_by_clean_copy_at} diff={parseDiff} /> : null}
         {doc.status === "needs_review" && allLines.length === 0 ? (
           <form action={retryParse}>
             <input type="hidden" name="document_id" value={doc.id} />
@@ -413,5 +425,90 @@ function UnresolvedLine({ line, documentId, items, retailLiquor }: { line: Line;
       </div>
     </form>
     </div>
+  );
+}
+
+function isParseDiff(x: unknown): x is ParseDiff {
+  if (!x || typeof x !== "object") return false;
+  const d = x as Partial<ParseDiff>;
+  return Boolean(d.paper && d.portal && Array.isArray(d.diffs) && typeof d.matches === "boolean");
+}
+
+const fmtQtyStr = (s: string | null) => (s == null ? "—" : fmtQty(Number(s)));
+
+/**
+ * Vendor-portal pull: link to the clean copy attached to this paper document
+ * and, when the portal disagreed with what the camera read, "paper said /
+ * portal says" line by line. Read-only: fixing a line is the normal review flow.
+ */
+function PortalPanel({ cleanUrl, verifiedAt, diff }: { cleanUrl: string | null; verifiedAt: string | null; diff: ParseDiff | null }) {
+  return (
+    <section className={`flex flex-col gap-2 rounded-xl p-3 text-sm ${diff && !diff.matches ? "bg-amber-50 text-amber-950" : "bg-sky-50 text-sky-950"}`}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-medium">Portal copy</span>
+        {cleanUrl ? (
+          <a href={cleanUrl} target="_blank" rel="noreferrer" className="underline">
+            Open the clean copy from the portal
+          </a>
+        ) : (
+          <span className="text-neutral-600">attached; preview unavailable</span>
+        )}
+        {verifiedAt ? <span className="text-xs">✓ matches what was posted · verified {fmtDate(verifiedAt.slice(0, 10))}</span> : null}
+      </div>
+      {diff && !diff.matches ? (
+        <>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div className="rounded-lg bg-white/70 p-2">
+              <div className="text-neutral-500">paper said</div>
+              <div className="font-medium tabular-nums">
+                {diff.paper.line_count} line{diff.paper.line_count === 1 ? "" : "s"} · {fmtMoney(Number(diff.paper.sum))}
+              </div>
+            </div>
+            <div className="rounded-lg bg-white/70 p-2">
+              <div className="text-neutral-500">portal says</div>
+              <div className="font-medium tabular-nums">
+                {diff.portal.line_count} line{diff.portal.line_count === 1 ? "" : "s"} · {fmtMoney(Number(diff.portal.sum))}
+                {diff.sum_delta !== "0.00" ? ` (${Number(diff.sum_delta) > 0 ? "+" : ""}${fmtMoney(Number(diff.sum_delta))})` : ""}
+              </div>
+            </div>
+          </div>
+          {diff.diffs.length ? (
+            <ul className="flex flex-col divide-y divide-amber-200 text-xs">
+              {diff.diffs.map((d, i) => {
+                const l = d.paper ?? d.portal;
+                return (
+                  <li key={i} className="flex flex-col gap-0.5 py-2">
+                    <div className="font-medium">
+                      {l?.description ?? "—"}
+                      {l?.vendor_sku ? <span className="text-neutral-500"> · SKU {l.vendor_sku}</span> : null}
+                    </div>
+                    {d.kind === "missing_on_portal" ? (
+                      <div>
+                        paper said {fmtQtyStr(d.paper!.quantity)} × {fmtMoney(d.paper!.extended_price == null ? null : Number(d.paper!.extended_price))} · <span className="font-medium">not on the portal copy</span>
+                      </div>
+                    ) : d.kind === "missing_on_paper" ? (
+                      <div>
+                        <span className="font-medium">not on the paper</span> · portal says {fmtQtyStr(d.portal!.quantity)} × {fmtMoney(d.portal!.extended_price == null ? null : Number(d.portal!.extended_price))}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2 tabular-nums">
+                        <span>
+                          paper said {fmtQtyStr(d.paper!.quantity)} · {fmtMoney(d.paper!.extended_price == null ? null : Number(d.paper!.extended_price))}
+                        </span>
+                        <span>
+                          portal says {fmtQtyStr(d.portal!.quantity)} · {fmtMoney(d.portal!.extended_price == null ? null : Number(d.portal!.extended_price))}
+                          <span className="text-neutral-500"> ({d.fields.join(", ").replace(/_/g, " ")})</span>
+                        </span>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <p className="text-xs text-neutral-600">The posted lines are still the paper reading. Fix a line below, or confirm the paper if the portal is wrong.</p>
+        </>
+      ) : null}
+    </section>
   );
 }

@@ -1,0 +1,10 @@
+{
+  "_note": "Synthetic plain-text reply from a retail liquor store rep. Not a real 802 Spirits price list; prices are invented.",
+  "vendor_name": "802 Spirits",
+  "document_kind": "quote",
+  "line_count": 6,
+  "first_line": { "description_contains": "Tito", "unit_price": 41.5, "has_special_terms": true },
+  "valid_from": null,
+  "valid_through": "2026-09-30",
+  "must_not_contain_description": "DIPLOMATICO"
+}

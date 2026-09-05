@@ -48,6 +48,8 @@ export type RecipeDraft = z.infer<typeof RecipeDraftSchema>;
 export type RecipeComponentDraft = z.infer<typeof RecipeComponentDraftSchema>;
 
 export type RecipeDraftInput = {
+  /** tenants.concept — one sentence describing the operation; falls back to DEFAULT_CONCEPT */
+  concept?: string | null;
   menuItem: { id: string; name: string; category: string | null; price: number | string | null };
   modifierNames: string[];
   inventory: Array<{ id: string; name: string; category: string | null; base_unit: Enums<"uom"> }>;
@@ -97,9 +99,19 @@ export const RECIPE_DRAFT_INPUT_SCHEMA: Record<string, unknown> = {
   required: ["components", "overall_confidence"],
 };
 
-export const RECIPE_DRAFT_SYSTEM = `You draft ingredient usage for menu items at a bar & grill in Vermont (burgers, wings, sandwiches, salads, pub entrees, draft and canned beer, wine by the glass, classic cocktails and shots).
+/** Fallback when tenants.concept is null (the original Mad Moose sentence). */
+export const DEFAULT_CONCEPT = "a bar & grill in Vermont (burgers, wings, sandwiches, salads, pub entrees, draft and canned beer, wine by the glass, classic cocktails and shots)";
+
+/** System prompt for a tenant; `concept` is tenants.concept (one sentence describing the operation). */
+export function recipeDraftSystem(concept: string | null | undefined): string {
+  return `You draft ingredient usage for menu items at ${concept?.trim() || DEFAULT_CONCEPT}.` + RECIPE_DRAFT_RULES;
+}
+
+const RECIPE_DRAFT_RULES = `
 
 Your job: for one menu item, list the inventory ingredients that leave stock each time one is sold, with a quantity per item sold.
+
+Removal or substitution-out modifiers ("No Gouda", "Hold Onions", "Without Mayo", "Sub out X") consume nothing: return an empty components array with a note saying it is a removal. Never return a component with quantity 0 or a negative quantity.
 
 Standard pours and portions unless the item name says otherwise:
 - Spirits: 1.5 oz per cocktail or mixed drink; shots 1.5 oz; doubles 3 oz; martinis/manhattans 2.5-3 oz total spirit.
@@ -133,7 +145,7 @@ export async function draftRecipe(input: RecipeDraftInput, provider: LlmProvider
   };
   const r = await provider.structured<RecipeDraft>({
     task: "recipe-draft",
-    system: RECIPE_DRAFT_SYSTEM,
+    system: recipeDraftSystem(input.concept),
     user: `Draft the recipe for this menu item. Existing inventory is listed with ids; reuse them where they fit.\n\n${JSON.stringify(payload, null, 2)}`,
     schema: RecipeDraftSchema,
     schemaName: RECIPE_DRAFT_TOOL,

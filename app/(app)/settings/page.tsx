@@ -1,7 +1,8 @@
 import { getAppContext } from "@/lib/db/context";
 import { createServerSupabase } from "@/lib/db/server";
 import { signOut } from "@/app/login/actions";
-import { saveToastCredentials, syncMenuNow, syncToastNow, updateLocation } from "./actions";
+import Link from "next/link";
+import { saveToastCredentials, syncMenuNow, syncToastNow, updateLocation, updateVendorContact } from "./actions";
 
 export const metadata = { title: "Settings" };
 
@@ -13,11 +14,15 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const sp = await searchParams;
   const ctx = await getAppContext();
   const supabase = await createServerSupabase();
-  const [{ data: creds }, { data: runs }, { count: menuCount }] = await Promise.all([
+  const [{ data: creds }, { data: runs }, { count: menuCount }, { data: vendors }, { data: mappings }] = await Promise.all([
     supabase.from("toast_credentials").select("client_id, last_synced_at, created_at").eq("location_id", ctx.location.id).maybeSingle(),
     supabase.from("sync_runs").select("*").eq("location_id", ctx.location.id).order("created_at", { ascending: false }).limit(8),
     supabase.from("menu_items").select("id", { count: "exact", head: true }).eq("tenant_id", ctx.tenant.id),
+    supabase.from("vendors").select("id, name, kind, contact_email").eq("tenant_id", ctx.tenant.id).order("name"),
+    supabase.from("vendor_item_mappings").select("vendor_id").eq("tenant_id", ctx.tenant.id),
   ]);
+  const mappingCount = new Map<string, number>();
+  for (const m of mappings ?? []) mappingCount.set(m.vendor_id, (mappingCount.get(m.vendor_id) ?? 0) + 1);
 
   return (
     <div className="flex flex-col gap-8 py-4">
@@ -96,6 +101,50 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
             </button>
           </form>
         </div>
+      </section>
+
+      <section id="vendors" className="flex flex-col gap-3">
+        <h2 className="text-lg font-medium">Vendors</h2>
+        <p className="text-sm text-neutral-600">
+          The sales rep&apos;s email for each vendor. Pricing requests go there (every Monday, on a 10% price jump, or from the{" "}
+          <Link href="/prices" className="underline">
+            Prices
+          </Link>{" "}
+          page) and replies file themselves as quotes.
+        </p>
+        {vendors?.length ? (
+          <ul className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white">
+            {vendors.map((v) => {
+              const n = mappingCount.get(v.id) ?? 0;
+              return (
+                <li key={v.id} className="flex flex-col gap-2 px-4 py-3">
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-medium">{v.name}</span>
+                    <span className="text-xs text-neutral-500">
+                      {v.kind.replace(/_/g, " ")} · {n} mapped item{n === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                  <form action={updateVendorContact} className="flex gap-2">
+                    <input type="hidden" name="vendor_id" value={v.id} />
+                    <input
+                      name="contact_email"
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
+                      placeholder="rep@vendor.com"
+                      defaultValue={v.contact_email ?? ""}
+                      aria-label={`${v.name} contact email`}
+                      className={`${inputCls} min-w-0 flex-1`}
+                    />
+                    <button className={btn2Cls}>Save</button>
+                  </form>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-sm text-neutral-500">No vendors yet — they are created from your first posted invoice.</p>
+        )}
       </section>
 
       <section className="flex flex-col gap-2">

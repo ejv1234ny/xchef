@@ -140,3 +140,96 @@ describe.skipIf(!isLlmConfigured() || fixtures.length === 0)("parseInvoiceDocume
     );
   }
 });
+
+// ---- Quotes (KICKOFF-2 Part 3): vendor replies to a pricing request ------------------------------------
+
+const QUOTE_FIXTURES = path.join(__dirname, "../../fixtures/quotes");
+
+type ExpectedQuote = {
+  vendor_name: string;
+  document_kind: "quote";
+  line_count: number;
+  first_line: { vendor_sku?: string; description_contains?: string; unit_price: number; pack_size_text?: string; has_special_terms?: boolean };
+  valid_from: string | null;
+  valid_through: string | null;
+  line_with_min_quantity?: { vendor_sku: string; min_quantity: number };
+  must_not_contain_description?: string;
+};
+
+function quoteFixtures(): Array<{ name: string; file: string; expected: ExpectedQuote }> {
+  if (!existsSync(QUOTE_FIXTURES)) return [];
+  return readdirSync(QUOTE_FIXTURES)
+    .filter((f) => f.endsWith(".expected.json"))
+    .map((f) => {
+      const name = f.slice(0, -".expected.json".length);
+      return { name, file: path.join(QUOTE_FIXTURES, `${name}.txt`), expected: JSON.parse(readFileSync(path.join(QUOTE_FIXTURES, f), "utf8")) as ExpectedQuote };
+    })
+    .filter((fx) => existsSync(fx.file));
+}
+
+const quoteFx = quoteFixtures();
+
+describe("InvoiceParseSchema: quotes", () => {
+  it("accepts document_kind 'quote' with validity dates and per-line special_terms / min_quantity", () => {
+    const quote = InvoiceParseSchema.parse({
+      documents: [
+        {
+          ...sampleDoc,
+          is_invoice: false,
+          document_kind: "quote",
+          receipt_id: null,
+          subtotal: null,
+          total: null,
+          printed_item_count: null,
+          valid_from: "2026-09-08",
+          valid_through: "2026-09-30",
+          lines: [{ line_no: 1, vendor_sku: "0001", description: "TITOS VODKA 750ML", pack_size_text: "750ML", quantity: 1, unit_price: 41.5, extended_price: 41.5, category_guess: "liquor", confidence: 0.95, special_terms: "case of 12 $480", min_quantity: null }],
+        },
+      ],
+    });
+    expect(quote.documents[0].document_kind).toBe("quote");
+    expect(quote.documents[0].valid_through).toBe("2026-09-30");
+    expect(quote.documents[0].lines[0].special_terms).toBe("case of 12 $480");
+    expect(() => InvoiceParseSchema.parse({ documents: [{ ...sampleDoc, valid_through: "9/30/2026" }] })).toThrow();
+    // a quote without prices printed still validates (no subtotal to check)
+    expect(validateParsedDocument({ ...quote.documents[0], subtotal: null, printed_item_count: null }).ok).toBe(true);
+  });
+});
+
+describe.skipIf(!isLlmConfigured() || quoteFx.length === 0)("quote replies in fixtures/quotes/*.txt (real model)", () => {
+  for (const fx of quoteFx) {
+    it(
+      `${fx.name}: document_kind quote, ${fx.expected.line_count} lines, valid_through ${fx.expected.valid_through}`,
+      async () => {
+        const text = readFileSync(fx.file, "utf8");
+        const result = await extractInvoiceFromFile({ text, mimeType: "text/plain", filename: path.basename(fx.file) });
+        const quotes = result.documents.filter((d) => d.document_kind === "quote");
+        console.log(`${fx.name}: ${result.documents.length} document(s) after ${result.attempts.length} attempt(s): ${result.documents.map((d) => `${d.document_kind} ${d.vendor_name} lines=${d.lines.length} valid ${d.valid_from ?? "-"}→${d.valid_through ?? "-"}`).join(" | ")}`);
+        expect(result.documents).toHaveLength(1);
+        expect(quotes).toHaveLength(1);
+        const d = quotes[0];
+        expect(d.vendor_name.toLowerCase()).toContain(fx.expected.vendor_name.toLowerCase().split(" ")[0]);
+        expect(d.lines).toHaveLength(fx.expected.line_count);
+        expect(d.valid_through ?? null).toBe(fx.expected.valid_through);
+        if (fx.expected.valid_from) expect(d.valid_from ?? null).toBe(fx.expected.valid_from);
+        const first = d.lines[0];
+        expect(first.unit_price).toBeCloseTo(fx.expected.first_line.unit_price, 2);
+        if (fx.expected.first_line.vendor_sku) expect(first.vendor_sku).toBe(fx.expected.first_line.vendor_sku);
+        if (fx.expected.first_line.description_contains) expect(first.description.toLowerCase()).toContain(fx.expected.first_line.description_contains.toLowerCase());
+        if (fx.expected.first_line.pack_size_text) expect(first.pack_size_text?.replace(/\s+/g, "")).toBe(fx.expected.first_line.pack_size_text.replace(/\s+/g, ""));
+        if (fx.expected.first_line.has_special_terms) expect((first.special_terms ?? "").length).toBeGreaterThan(0);
+        if (fx.expected.line_with_min_quantity) {
+          const l = d.lines.find((x) => x.vendor_sku === fx.expected.line_with_min_quantity!.vendor_sku);
+          expect(l?.min_quantity).toBe(fx.expected.line_with_min_quantity.min_quantity);
+        }
+        if (fx.expected.must_not_contain_description) {
+          // the quoted original request (what we asked about) must not leak into the lines
+          expect(d.lines.some((l) => l.description.toUpperCase().includes(fx.expected.must_not_contain_description!.toUpperCase()))).toBe(false);
+        }
+        // every quoted line carries a per-pack price
+        expect(d.lines.every((l) => l.unit_price != null && l.unit_price > 0)).toBe(true);
+      },
+      180_000,
+    );
+  }
+});

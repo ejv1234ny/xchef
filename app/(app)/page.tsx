@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getAppContext } from "@/lib/db/context";
 import { createServerSupabase } from "@/lib/db/server";
-import { hourIn } from "@/lib/core/dates";
+import { hourIn, todayIn } from "@/lib/core/dates";
+import { daysBetween, reconciliationDate, restatementLabel } from "@/lib/core/position";
 import type { Tables } from "@/lib/db/types";
-import { expectationText, fmtDays, fmtMoney, fmtPacks, fmtQty, packWord, Flash } from "@/components/ui-format";
+import { expectationText, fmtDate, fmtDays, fmtMoney, fmtPacks, fmtQty, packWord, Chip, Flash } from "@/components/ui-format";
 import { confirmEstimate, saveCount } from "./verify/actions";
 
 export const metadata = { title: "Verify" };
@@ -20,8 +21,10 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
   const position: Position =
     sp.position === "open" || sp.position === "close" ? sp.position : hourIn(ctx.location.timezone) < 14 ? "open" : "close";
   const savedId = typeof sp.saved === "string" ? sp.saved : null;
+  const yesterday = reconciliationDate(ctx.location.timezone);
+  const today = todayIn(ctx.location.timezone);
 
-  const [{ data: queue, error: qerr }, saved] = await Promise.all([
+  const [{ data: queue, error: qerr }, saved, { data: daily }] = await Promise.all([
     supabase
       .from("verification_queue")
       .select("*")
@@ -29,9 +32,16 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
       .order("priority_score", { ascending: false })
       .limit(10),
     savedId ? loadSaved(ctx.location.id, savedId) : Promise.resolve(null),
+    // the reconciled close of the last business day for every item, one query (the queue is at most 10 of them)
+    supabase
+      .from("daily_position")
+      .select("inventory_item_id, business_date, expected_close_qty, last_verified_at, restated_at, restatement_reason")
+      .eq("location_id", ctx.location.id)
+      .eq("business_date", yesterday),
   ]);
 
   const rows = queue ?? [];
+  const dailyById = new Map((daily ?? []).map((d) => [d.inventory_item_id, d]));
 
   return (
     <div className="flex flex-col gap-4 py-4">
@@ -62,7 +72,7 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
         <ul className="flex flex-col gap-3">
           {rows.map((r) => (
             <li key={r.inventory_item_id ?? r.inventory_item_name ?? ""}>
-              <QueueRow row={r} position={position} />
+              <QueueRow row={r} position={position} daily={dailyById.get(r.inventory_item_id ?? "") ?? null} today={today} />
             </li>
           ))}
         </ul>
@@ -88,8 +98,9 @@ function PositionToggle({ position }: { position: Position }) {
 }
 
 type QueueRowT = Tables<"verification_queue">;
+type DailyT = Pick<Tables<"daily_position">, "inventory_item_id" | "business_date" | "expected_close_qty" | "last_verified_at" | "restated_at" | "restatement_reason">;
 
-function QueueRow({ row, position }: { row: QueueRowT; position: Position }) {
+function QueueRow({ row, position, daily, today }: { row: QueueRowT; position: Position; daily: DailyT | null; today: string }) {
   const never = row.has_baseline === false;
   const word = packWord(row.inventory_item_name, row.pack_to_base_factor, 2);
   const countsInPacks = word !== null;
@@ -124,6 +135,7 @@ function QueueRow({ row, position }: { row: QueueRowT; position: Position }) {
           {days ? ` · ${days}` : ""}
           {row.on_hand_packs != null && countsInPacks ? ` · ${fmtQty(row.on_hand_qty)} ${row.base_unit}` : ""}
         </p>
+        {daily ? <DailyLine row={row} daily={daily} today={today} /> : null}
       </div>
 
       <div className="flex gap-2">
@@ -149,6 +161,28 @@ function QueueRow({ row, position }: { row: QueueRowT; position: Position }) {
       </div>
       {!countsInPacks ? <p className="text-xs text-neutral-500">No pack size on this item — count in {row.base_unit}.</p> : null}
     </form>
+  );
+}
+
+/** "as of close Sep 4: expected 11.4 bottles · last checked 3 days ago · restated (late invoice) · history" from daily_position. */
+function DailyLine({ row, daily, today }: { row: QueueRowT; daily: DailyT; today: string }) {
+  const factor = row.pack_to_base_factor != null && row.pack_to_base_factor > 0 ? row.pack_to_base_factor : null;
+  // display-only: packs = expected close ÷ pack size (the stored number is base units)
+  const packs = factor ? daily.expected_close_qty / factor : null;
+  const word = packWord(row.inventory_item_name, row.pack_to_base_factor, packs ?? 2);
+  const expected = packs != null && word ? `${fmtPacks(packs)} ${word}` : `${fmtQty(daily.expected_close_qty)} ${row.base_unit ?? ""}`.trim();
+  const checkedDays = daily.last_verified_at ? Math.max(0, daysBetween(daily.last_verified_at.slice(0, 10), today)) : null;
+  const checked = checkedDays == null ? "never checked" : checkedDays === 0 ? "checked today" : `last checked ${checkedDays} day${checkedDays === 1 ? "" : "s"} ago`;
+  return (
+    <p className="mt-1 flex flex-wrap items-center gap-x-1 gap-y-0.5 text-xs text-neutral-500">
+      <span>
+        as of close {fmtDate(daily.business_date)}: expected <span className="font-medium text-neutral-700">{expected}</span> · {checked}
+      </span>
+      {daily.restated_at ? <Chip className="bg-amber-100 text-amber-900">restated ({restatementLabel(daily.restatement_reason)})</Chip> : null}
+      <Link href={`/position?item=${row.inventory_item_id ?? ""}`} className="underline">
+        history
+      </Link>
+    </p>
   );
 }
 

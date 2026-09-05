@@ -47,6 +47,21 @@ export async function saveToastCredentials(formData: FormData) {
   msg("ok", "Toast credentials stored in Vault. First sync pulls 90 days in the background.");
 }
 
+/** Settings → Vendors: where pricing requests for this vendor go (vendors.contact_email). Empty clears it. */
+export async function updateVendorContact(formData: FormData) {
+  const ctx = await getAppContext();
+  const supabase = await createServerSupabase();
+  const vendorId = String(formData.get("vendor_id") ?? "").trim();
+  const email = String(formData.get("contact_email") ?? "").trim().toLowerCase() || null;
+  if (!vendorId) msg("error", "No vendor selected");
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) msg("error", `"${email}" does not look like an email address`);
+  const { data, error } = await supabase.from("vendors").update({ contact_email: email }).eq("id", vendorId).eq("tenant_id", ctx.tenant.id).select("name").maybeSingle();
+  if (error) msg("error", error.message);
+  revalidatePath("/settings");
+  revalidatePath("/prices");
+  msg("ok", email ? `${data?.name ?? "Vendor"}: pricing requests go to ${email}` : `${data?.name ?? "Vendor"}: contact email cleared`);
+}
+
 export async function syncToastNow() {
   const ctx = await getAppContext();
   const { runs } = await runToastSync({ locationId: ctx.location.id, maxChunks: 1 });

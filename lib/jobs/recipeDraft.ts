@@ -10,6 +10,8 @@ export type RecipeDraftLogger = (msg: string, meta?: Record<string, unknown>) =>
 
 export type DraftRecipesOptions = {
   tenantId: string;
+  /** tenants.concept, loaded once per run by draftRecipes */
+  concept?: string | null;
   locationId: string;
   /** restrict to these menu items (still ordered by sales; items without sales are kept, last) */
   menuItemIds?: string[];
@@ -181,6 +183,7 @@ async function draftOne(
   let result: Awaited<ReturnType<typeof draftRecipe>>;
   try {
     result = await draftRecipe({
+      concept: opts.concept ?? null,
       menuItem: { id: item.id, name: item.name, category: item.category, price: item.price },
       modifierNames,
       inventory,
@@ -260,7 +263,13 @@ async function draftOne(
 export async function draftRecipes(svc: ServiceClient, opts: DraftRecipesOptions): Promise<DraftRecipesResult> {
   const log = opts.log ?? (() => {});
   const result: DraftRecipesResult = { drafted: 0, skipped: 0, errors: 0, newItems: 0 };
-  if (!isLlmConfigured()) throw new Error("ANTHROPIC_API_KEY not configured");
+  if (!isLlmConfigured()) throw new Error("LLM API key (OPENAI_API_KEY or ANTHROPIC_API_KEY) not configured");
+
+  // tenants.concept drives the recipe prompt (Part 0 of KICKOFF-2); null falls back to the Mad Moose sentence.
+  if (opts.concept === undefined) {
+    const { data: tenant } = await svc.from("tenants").select("concept").eq("id", opts.tenantId).maybeSingle();
+    opts = { ...opts, concept: tenant?.concept ?? null };
+  }
 
   const items = await selectMenuItemsToDraft(svc, opts);
   if (items.length === 0) {

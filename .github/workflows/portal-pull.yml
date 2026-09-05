@@ -1,0 +1,82 @@
+# Vendor-portal pull (KICKOFF-2 Part 2). Runs here, not on Vercel: a browser
+# does not fit a 300 s function. Daily at 11:00 UTC (7 a.m. Eastern — portals
+# have posted yesterday's invoices by then), or by hand with dry_run to exercise
+# intake auth + attach/dedupe against the fixture spreadsheet without a browser.
+#
+# Repository secrets (names only — values live in GitHub → Settings → Secrets):
+#   XCHEF_BASE_URL        https://xchef.vercel.app
+#   XCHEF_INTAKE_KEY      same value as INTAKE_API_KEY on Vercel
+#   PORTAL_PFG_USER / PORTAL_PFG_PASS      Performance Food Group customer portal
+#   PORTAL_SYSCO_USER / PORTAL_SYSCO_PASS  Sysco Shop
+# The script only reads the database (for max(invoice_date) per vendor) when
+# NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are present; without
+# them it pulls the last 14 days. They are deliberately NOT passed here — the
+# service role key stays on Vercel; the intake key is the only credential the
+# runner needs to reach xchef.
+name: portal-pull
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: POST the fixture spreadsheet three times (create → dedupe → attach); no browser, no vendor login"
+        type: boolean
+        default: true
+      vendor:
+        description: "Only this adapter (pfg | sysco); empty = every adapter with credentials"
+        type: string
+        default: ""
+
+concurrency:
+  group: portal-pull
+  cancel-in-progress: false
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      XCHEF_BASE_URL: ${{ secrets.XCHEF_BASE_URL }}
+      XCHEF_INTAKE_KEY: ${{ secrets.XCHEF_INTAKE_KEY }}
+      PORTAL_PFG_USER: ${{ secrets.PORTAL_PFG_USER }}
+      PORTAL_PFG_PASS: ${{ secrets.PORTAL_PFG_PASS }}
+      PORTAL_SYSCO_USER: ${{ secrets.PORTAL_SYSCO_USER }}
+      PORTAL_SYSCO_PASS: ${{ secrets.PORTAL_SYSCO_PASS }}
+      # scheduled runs are real pulls; manual runs default to the dry run
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+      ONLY_VENDOR: ${{ github.event_name == 'workflow_dispatch' && inputs.vendor || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # No `version:` — pnpm/action-setup reads the packageManager field in package.json (pnpm@10.x).
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install chromium
+        if: env.DRY_RUN != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Pull invoices
+        run: |
+          ARGS=""
+          if [ "$DRY_RUN" = "true" ]; then ARGS="$ARGS --dry"; fi
+          if [ -n "$ONLY_VENDOR" ]; then ARGS="$ARGS --vendor $ONLY_VENDOR"; fi
+          echo "pnpm portal:pull $ARGS"
+          pnpm portal:pull $ARGS --artifacts artifacts
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portal-screenshots-${{ github.run_id }}
+          path: artifacts/**/*.png
+          if-no-files-found: ignore
+          retention-days: 14

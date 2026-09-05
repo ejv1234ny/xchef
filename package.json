@@ -20,7 +20,11 @@
     "invoices:import-xlsx": "tsx scripts/import-spreadsheet.ts",
     "seed:demo": "tsx scripts/seed-demo.ts",
     "db:push": "supabase db push",
-    "db:types": "supabase gen types typescript --project-id gqahyzoebifscqcrrkgq > lib/db/types.ts"
+    "db:types": "supabase gen types typescript --project-id gqahyzoebifscqcrrkgq > lib/db/types.ts",
+    "position": "tsx scripts/position.ts",
+    "validate:position": "tsx scripts/validate-position.ts",
+    "portal:pull": "tsx scripts/portal-pull.ts",
+    "quotes:request": "tsx scripts/quotes-request.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
@@ -47,6 +51,7 @@
     "dotenv": "^17.4.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
+    "playwright": "^1.63.0",
     "supabase": "^2.116.0",
     "tailwindcss": "^4",
     "typescript": "^5",

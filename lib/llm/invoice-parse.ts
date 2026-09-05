@@ -26,11 +26,15 @@ export const InvoiceLineSchema = z.object({
   extended_price: z.number().nullable().optional(),
   category_guess: z.string(),
   confidence: z.number().min(0).max(1),
+  /** quotes only: specials / case-deal wording for this item ("buy 5 cases get 1 free", "case of 12 $480") */
+  special_terms: z.string().nullable().optional(),
+  /** quotes only: minimum order quantity (packs) the quoted price requires */
+  min_quantity: z.number().nullable().optional(),
 });
 
 export const InvoiceDocumentSchema = z.object({
   is_invoice: z.boolean(),
-  document_kind: z.enum(["invoice", "credit", "statement", "other"]),
+  document_kind: z.enum(["invoice", "credit", "statement", "other", "quote"]),
   vendor_name: z.string(),
   /** the unique printed number: barcode / receipt number when present, else the invoice number */
   receipt_id: z.string().nullable().optional(),
@@ -41,6 +45,10 @@ export const InvoiceDocumentSchema = z.object({
   /** HH:MM (24h) when printed */
   invoice_time: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
   received_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  /** quotes only: first day the quoted prices apply (YYYY-MM-DD) */
+  valid_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  /** quotes only: last day the quoted prices apply (YYYY-MM-DD) */
+  valid_through: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   subtotal: z.number().nullable().optional(),
   tax: z.number().nullable().optional(),
   total: z.number().nullable().optional(),
@@ -76,6 +84,8 @@ const LINE_TOOL_SCHEMA = {
     extended_price: { type: ["number", "null"], description: "net line total = gross_price − adjustment" },
     category_guess: { type: "string", description: "one of: produce, meat, seafood, dairy, dry, frozen, bakery, beverage, liquor, beer, wine, supplies, fee, deposit, tax, other" },
     confidence: { type: "number", minimum: 0, maximum: 1 },
+    special_terms: { type: ["string", "null"], description: 'quotes only: specials / case-deal wording for this item ("buy 5 get 1 free", "case of 12 $480"); null otherwise' },
+    min_quantity: { type: ["number", "null"], description: "quotes only: minimum order quantity (packs) the quoted price requires; null otherwise" },
   },
   required: ["line_no", "description", "quantity", "category_guess", "confidence"],
 };
@@ -90,7 +100,7 @@ export const INVOICE_PARSE_TOOL_SCHEMA: Record<string, unknown> = {
         type: "object",
         properties: {
           is_invoice: { type: "boolean", description: "true for an invoice, receipt, delivery ticket or credit memo with product lines" },
-          document_kind: { type: "string", enum: ["invoice", "credit", "statement", "other"] },
+          document_kind: { type: "string", enum: ["invoice", "credit", "statement", "other", "quote"], description: "quote = a price quote / price list / current-pricing reply from a vendor (nothing was purchased)" },
           vendor_name: { type: "string", description: "vendor / store / distributor name as printed (not the restaurant)" },
           receipt_id: { type: ["string", "null"], description: "the unique printed number: barcode number or receipt number when present, else the invoice number" },
           transaction_code: { type: ["string", "null"], description: "non-unique register / store / terminal codes printed on every receipt from that register" },
@@ -98,6 +108,8 @@ export const INVOICE_PARSE_TOOL_SCHEMA: Record<string, unknown> = {
           invoice_date: { type: ["string", "null"], description: "YYYY-MM-DD" },
           invoice_time: { type: ["string", "null"], description: "HH:MM 24h when printed" },
           received_date: { type: ["string", "null"], description: "delivery date if printed and different, YYYY-MM-DD" },
+          valid_from: { type: ["string", "null"], description: "quotes only: first day the prices apply, YYYY-MM-DD" },
+          valid_through: { type: ["string", "null"], description: 'quotes only: last day the prices apply ("through 9/30", "good until", "expires"), YYYY-MM-DD' },
           subtotal: { type: ["number", "null"] },
           tax: { type: ["number", "null"] },
           total: { type: ["number", "null"] },
@@ -115,7 +127,7 @@ export const INVOICE_PARSE_TOOL_SCHEMA: Record<string, unknown> = {
   required: ["documents"],
 };
 
-export const INVOICE_PARSE_SYSTEM = `You extract structured data from US foodservice purchase documents for a restaurant's inventory system: broadline distributor invoices (Sysco, PFG / Performance Food Group, US Foods, Reinhart), cash-and-carry receipts (Restaurant Depot, Costco), produce / meat / seafood / bakery invoices, and RETAIL LIQUOR STORE receipts (Vermont 802 Spirits, package stores) where the restaurant buys bottles over the counter. Documents may be PDFs, scans, phone photos, or pasted text.
+export const INVOICE_PARSE_SYSTEM = `You extract structured data from US foodservice purchase documents for a restaurant's inventory system: broadline distributor invoices (Sysco, PFG / Performance Food Group, US Foods, Reinhart), cash-and-carry receipts (Restaurant Depot, Costco), produce / meat / seafood / bakery invoices, RETAIL LIQUOR STORE receipts (Vermont 802 Spirits, package stores) where the restaurant buys bottles over the counter, and PRICE QUOTES / price lists that vendor sales reps send in reply to a pricing request. Documents may be PDFs, scans, phone photos, or pasted / emailed text.
 
 A single page can contain SEVERAL receipts or invoices (e.g. two register receipts scanned side by side, or two invoices stapled together). Return one entry in documents[] per receipt/invoice, in reading order (left before right, top before bottom), and say where it was in "region". Never merge two receipts into one.
 
@@ -134,7 +146,8 @@ Lines:
 - quantity is the quantity SHIPPED / delivered when both ordered and shipped exist; for retail receipts it is the number of bottles/cans/packs. Positive numbers; keep decimals for weighed items (13.21 lb → quantity 13.21 with pack_size_text "LB").
 - unit_price and extended_price as printed; extended_price is the net line total.
 - Delivery fees, fuel surcharges and tax lines that are NOT attached to a specific item are lines with category_guess 'fee' or 'tax'.
-- Statements of account, aging reports, marketing flyers, order guides and price lists are NOT invoices: is_invoice=false and document_kind 'statement' or 'other'.
+- Statements of account, aging reports, marketing flyers and order guides WITHOUT prices are NOT invoices: is_invoice=false and document_kind 'statement' or 'other'.
+- PRICE QUOTES: a price quote, price list, bid sheet, "current pricing" or "this week's prices" reply from a vendor sales rep is document_kind 'quote' (is_invoice=false is fine — keep document_kind 'quote'). Nothing was purchased. One line per quoted product with: vendor_sku when given, description, pack_size_text verbatim ("6/#10", "12/750ML", "750ML", "case of 12"), unit_price = the quoted price PER PACK AS SOLD (per case when quoted by the case, per bottle when quoted by the bottle), quantity = 1, extended_price = unit_price, category_guess as usual. When one product is quoted two ways ("Tito's 750 $41.50/btl, case of 12 $480") emit ONE line with the per-unit price (unit_price 41.50, pack_size_text "750ML") and put the case deal in that line's special_terms ("case of 12 $480"); a stated minimum ("min 5 cases") goes in min_quantity as a number. Specials, promos, "deal", "closeout" and rebate wording go in special_terms. Validity: valid_from / valid_through as YYYY-MM-DD from "through 9/30", "good until", "valid", "expires", "prices for the week of" (take the year from the email / quote date, else the current year); null when nothing is stated. invoice_date = the date of the quote / email when known; subtotal, total and printed_item_count are null unless printed. Plain-text emails like "Tito's 750 $41.50/btl, case of 12 $480 through 9/30" are quotes: parse each product from the text. In an email reply, ignore the quoted original request (lines starting with ">" or below "On … wrote:", "From:", "-----Original Message-----"): extract only the vendor's own pricing, never the list of items that was asked about.
 - A credit memo / return: document_kind 'credit' with POSITIVE quantities (the system negates them).
 - vendor_name is the seller / store, never the restaurant (bill-to / ship-to party).
 - Check your own totals: Σ extended_price of product lines should equal the printed subtotal (before tax), and the number of product lines should equal printed_item_count when the document prints one. If they disagree, re-read the document before answering.
@@ -255,7 +268,7 @@ export function buildInvoiceInput(input: { bytes?: Uint8Array; text?: string; mi
   const extraNote = extras.length
     ? `\n\nAttached images: ${extras.map((f, i) => `image ${i + 1 + files.length} = ${f.name.replace(/\.[a-z]+$/i, "").replace(/-/g, " ")}`).join(", ")}. Whole-page images show layout (how many receipts, where); the crops are high-resolution views of parts of the same page — read every line from them. A crop can be blank or show only part of one receipt: never create a document for a blank region, and never split one receipt into two because it spans several crops.`
     : "";
-  return { user: `${body}${extraNote}\n\n${hint}\n\nExtract every receipt or invoice on this document as extract_invoice (documents[] has one entry per receipt/invoice).`, files: [...files, ...extras] };
+  return { user: `${body}${extraNote}\n\n${hint}\n\nExtract every receipt or invoice on this document as extract_invoice (documents[] has one entry per receipt/invoice; a vendor price quote / price list is one entry with document_kind 'quote').`, files: [...files, ...extras] };
 }
 
 /**
@@ -278,7 +291,7 @@ export async function parseInvoiceDocument(
     schema: InvoiceParseSchema,
     schemaName: "extract_invoice",
     toolSchema: INVOICE_PARSE_TOOL_SCHEMA,
-    toolDescription: "Structured extraction of a foodservice invoice, credit memo, receipt or delivery ticket.",
+    toolDescription: "Structured extraction of a foodservice invoice, credit memo, receipt, delivery ticket or vendor price quote.",
     maxTokens: 8192,
   });
   return toToolCallResult(r);

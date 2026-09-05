@@ -21,6 +21,12 @@ import { emailDomain, findOrCreateVendor, getLocation, type Logger } from "./int
  * (vendor_id, invoice_date, invoice_time, total) — and deleted. Credits get
  * negative quantities; statements/other are rejected. map/post decide the rest.
  *
+ * Quotes (KICKOFF-2 Part 3): a document flagged document_kind = 'quote' by
+ * intake (a [Q-…] reply) or called 'quote' by the parser keeps its lines like an
+ * invoice (so the review screen can show and remap them) and is marked
+ * document_kind = 'quote'; lib/jobs/quoteIngest.ts turns the mapped lines into
+ * vendor_quotes after the map step. Quotes are never credits and never purchases.
+ *
  * Without the selected provider's API key the document stays 'received' with parse_error set.
  */
 export type ParseJobResult = {
@@ -108,6 +114,7 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
   const location = await getLocation(svc, doc.location_id);
   const provider = selectedProviderName();
   const model = modelFor(provider, "invoice-parse");
+  const preMarkedQuote = doc.document_kind === "quote";
 
   if (!isLlmConfigured()) {
     const msg = `${provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"} not configured`;
@@ -204,6 +211,7 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
       continue;
     }
 
+    const isQuote = preMarkedQuote || d.document_kind === "quote";
     let targetId: string;
     if (!primaryUsed) {
       targetId = documentId;
@@ -216,7 +224,7 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
       else {
         const { data: created, error: ierr } = await svc
           .from("invoice_documents")
-          .insert({ location_id: doc.location_id, vendor_id: vendor.id, source: doc.source, status: "parsing", storage_path: doc.storage_path, email_from: doc.email_from, email_subject: doc.email_subject, email_message_id: doc.email_message_id, content_hash: hash })
+          .insert({ location_id: doc.location_id, vendor_id: vendor.id, source: doc.source, status: "parsing", storage_path: doc.storage_path, email_from: doc.email_from, email_subject: doc.email_subject, email_message_id: doc.email_message_id, content_hash: hash, document_kind: isQuote ? "quote" : null })
           .select("id")
           .single();
         if (ierr) throw new Error(`insert sibling invoice_documents: ${ierr.message}`);
@@ -224,7 +232,7 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
       }
     }
 
-    const isCredit = d.document_kind === "credit";
+    const isCredit = d.document_kind === "credit" && !isQuote;
     const rows = lineRows(targetId, d, isCredit);
     if (rows.length) {
       const { error: insErr } = await svc.from("invoice_lines").insert(rows);
@@ -253,9 +261,11 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
         receipt_id: d.receipt_id?.trim() || null,
         transaction_code: d.transaction_code?.trim() || null,
         invoice_number: d.invoice_number?.trim() || d.receipt_id?.trim() || null,
-        invoice_date: d.invoice_date ?? null,
+        // A quote's date is the quote / email date, else the first day its prices apply.
+        invoice_date: d.invoice_date ?? (isQuote ? d.valid_from ?? null : null),
         invoice_time: d.invoice_time ?? null,
-        received_date: d.received_date ?? d.invoice_date ?? null,
+        received_date: d.received_date ?? d.invoice_date ?? (isQuote ? d.valid_from ?? null : null),
+        ...(isQuote ? { document_kind: "quote" } : {}),
         subtotal: d.subtotal ?? null,
         tax: d.tax ?? null,
         total: d.total ?? null,
@@ -280,7 +290,7 @@ export async function parseInvoiceDocumentJob(svc: ServiceClient, documentId: st
     written.push(targetId);
     totalLines += rows.length;
     firstError = firstError ?? note;
-    log("invoice-parse: document", { documentId: targetId, region: d.region, vendor: vendor.name, receipt_id: d.receipt_id, date: d.invoice_date, lines: rows.length, printed: d.printed_item_count, sum: v.line_sum, subtotal: v.subtotal, ok: v.ok, attempts });
+    log("invoice-parse: document", { documentId: targetId, region: d.region, vendor: vendor.name, kind: isQuote ? "quote" : d.document_kind, receipt_id: d.receipt_id, date: d.invoice_date, valid_through: isQuote ? d.valid_through : undefined, lines: rows.length, printed: d.printed_item_count, sum: v.line_sum, subtotal: v.subtotal, ok: v.ok, attempts });
   }
 
   // Siblings from earlier runs that this run did not reproduce are gone.

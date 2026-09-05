@@ -1,0 +1,11 @@
+{
+  "_note": "Synthetic reply in the style of a Sysco rep's tabular price quote. Not a real Sysco document; SKUs and prices are invented.",
+  "vendor_name": "Sysco",
+  "document_kind": "quote",
+  "line_count": 6,
+  "first_line": { "vendor_sku": "4003330", "unit_price": 41.85, "pack_size_text": "6/#10", "has_special_terms": true },
+  "valid_from": "2026-09-08",
+  "valid_through": "2026-09-30",
+  "line_with_min_quantity": { "vendor_sku": "1345612", "min_quantity": 3 },
+  "must_not_contain_description": "PICKLE DILL SPEAR"
+}
