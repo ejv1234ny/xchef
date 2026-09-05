@@ -21,6 +21,8 @@ Every ingested invoice or receipt is the basis for everything downstream. There 
 
 Sales are the *multiplier*, not the root: the POS tells you how many margaritas sold; the invoices tell you what a margarita costs and what a case of tequila contains. A system that starts from a hand-built catalog inverts this and puts a data-entry step in front of every value.
 
+What the whole thing is *for* is one number per ingredient: the discrepancy. Invoices say what was delivered, so they are what is in inventory. Toast says what was sold, itemized down to the modifier. The running inventory is delivered − sold, and the owner's checks are the moments that number is tested against the walk-in. Everything else — catalog, packs, COGS, price comparison, plate cost — exists so that the discrepancy can be stated in dollars and in packs and be trusted.
+
 Corollary that shaped the build: **parse quality is the whole game.** A bad parse poisons every stage below it, so the fix is always at the parser (a vendor-specific layout), never a hand-edit to a catalog row. Mad Moose's Coca-Cola bag-in-box delivery ticket is the standing example — its lines came out as category labels rather than products and produced one merged "Juice Drink" item; it stays in review until the parser reads that ticket format correctly.
 
 ---
@@ -29,11 +31,12 @@ Corollary that shaped the build: **parse quality is the whole game.** A bad pars
 
 ```mermaid
 flowchart LR
-  subgraph intake[Intake — four channels, one pipeline]
+  subgraph intake[Intake — five channels, one pipeline]
     E[Vendor emails invoice] --> W[/api/inbound/resend]
     F[Owner forwards email] --> W
     P[Phone photo / scan / paste] --> U[/api/intake/upload · paste]
     M[Manual form] --> U
+    V[Vendor portal pull · planned] --> U
   end
   W --> D[(invoice_documents)]
   U --> D
@@ -42,6 +45,7 @@ flowchart LR
   L --> MAP[map<br/>saved mapping → fee/deposit → LLM sku-match<br/><b>new product ⇒ create inventory_item</b>]
   MAP --> POST[post<br/>all lines resolved ⇒ posted<br/>refresh cost_per_base_unit]
   POST --> PBI[(purchases_by_item)]
+  Q[Quote requests out · replies in · planned] -.-> PARSE
 
   subgraph pos[POS — read-only pull]
     T[Toast ordersBulk<br/>every 5 min, 36 h overlap] --> RAW[(toast_orders_raw)]
@@ -122,7 +126,7 @@ Menu sync runs daily and on `lastUpdated` change; after it, `relink_sales_facts`
 
 **Gate.** Three business days where `sales_facts` matches Toast Web's Product Mix report per item (`pnpm pmix`, `scripts/validate-pmix.ts`). Nothing is built on the rollup until this passes.
 
-### 5.2 Invoice intake (four channels → one pipeline)
+### 5.2 Invoice intake (five channels → one pipeline)
 
 | Channel | `source` | Lands via |
 |---|---|---|
@@ -131,6 +135,9 @@ Menu sync runs daily and on `lastUpdated` change; after it, `relink_sales_facts`
 | Phone photo, scan, PDF, pasted text | `upload` / `paste` | App; camera is the primary intake, client-side resize ≤ 2000 px, HEIC accepted |
 | Spreadsheet export (`csv tsv xlsx xls`) | any of the above | Deterministic column mapping, no LLM parse; unknown headers mapped once and remembered |
 | Paper slip typed in | `manual` | Form; skips parsing, goes straight to map |
+| Vendor portal pull | `api` | Scheduled login to the distributor's portal (Sysco Shop, PFG, Restaurant Depot, Coke) the morning after delivery; downloads the posted invoice PDF/CSV into the same pipeline. **Planned** — the enum slot exists, the job does not |
+
+The paper/portal lag is handled by the pipeline's own dedupe rather than a rule: the delivery driver hands over paper, the owner photographs it at the door (`upload`, same day, on-hand is right immediately), and the portal posts the authoritative copy the next morning (`api`). Both resolve to the same `(vendor, invoice_number)`; the second arrival attaches to the first document as its clean source rather than creating a second purchase. Where a portal offers "email me my invoices" that setting is preferred over automation — zero maintenance beats a login script that breaks when the portal redesigns — and the browser job is the fallback for vendors that don't.
 
 The webhook returns 200 fast, never bounces (vendors don't read bounces), dedupes on `content_hash` and `email_message_id`, and does the work in `after()`.
 
@@ -150,7 +157,11 @@ Anything else (low confidence, unknown pack) → `unmapped`, with the proposal k
 
 After menu sync, an LLM drafts components per menu item from name, category, price, modifier names, and the tenant's inventory list, creating items it needs, as `source = ai_draft` with confidence. The Q&A queue orders items by `units_sold_last_30d × (1 − max_confidence)` so the margarita is confirmed before the side of ranch; each card is one question with the guess pre-filled. Usage views work immediately for confirmed recipes and show drafts with an "unconfirmed" badge rather than hiding them. Between two real counts, `count_variance` lets the system back out an implied pour (actual draw ÷ units sold) and propose it as `reverse_engineered` for confirmation.
 
-### 5.4 The verification loop (the inventory screen)
+### 5.4 Outbound pricing (the forward price model)
+
+Invoiced prices are history; quotes are the future. The same machinery runs in reverse: on a schedule (weekly, or when an ingredient's 30-day price change exceeds a threshold) the system emails each vendor a request for current pricing on the items that vendor supplies, plus any specials or case-deal discounts, from the location's own inbound address so replies land in the same webhook. A reply is parsed by the invoice parser with `document_kind = quote`: it never posts purchases and never touches on-hand, but its lines map through the same vendor SKU / description mappings into a quotes dataset keyed by ingredient, vendor, pack, price, and valid-through date. `vendor_price_comparison` then has two columns per vendor — last invoiced and last quoted — and `vendor_switch_savings` can be computed on quoted prices, which is the number to act on before the order goes in rather than after the invoice arrives. **Planned** — the parser, mappings, and comparison views are already shaped for it; the outbound send, the `quote` document kind, and the quotes table are the work.
+
+### 5.5 The verification loop (the inventory screen)
 
 The primary screen is not a count sheet. It is a short list of expectations in pack units — "Tomatoes: you should have ~24 lb (about half a case)" — ordered by `verification_queue.priority_score`, top 5–10 per visit. A ✓ tap writes `stock_counts` as `confirmed_estimate` with the shown estimate stored; a typed number writes `counted`. Either resets the baseline instantly because `on_hand_estimate` is a view keyed off the latest count — no batch job, no recalculate button. `position` (open before 2 pm local, close after; owner can flip) decides whether that day's sales and deliveries count as "since". Only `counted` rows feed variance charts and calibration; a ✓ is zero-variance by construction.
 
@@ -165,11 +176,12 @@ These are the rules in `CLAUDE.md`, restated as the things a second build must n
 3. All money and quantity math in SQL views. App code reads; it never recomputes.
 4. Base units everywhere, `numeric(14,4)`, no float math anywhere in the path from invoice to screen.
 5. Never hardcode a pack size; always show the assumption.
-6. Every intake channel produces an `invoice_documents` row and goes through the same parse → map → post. Post only when every line is resolved.
+6. Every intake channel — including a portal pull or a quote reply — produces an `invoice_documents` row and goes through the same parse → map → post. Post only when every line is resolved.
 7. A "new" product creates its ingredient. The catalog is derived, never seeded.
 8. Zod at every boundary (POS payloads, LLM output, webhooks). Quarantine and log failures; never crash a cron run.
 9. Fixture tests for the pure core from the tenant's real data. A change there without a fixture is not done.
 10. Phone first: 44 px targets, one-thumb verify and review screens, camera intake, PWA-installable, top-10 list server-rendered in < 1 s on 4G.
+11. The discrepancy is reconciled daily, not just computed live. A business-day-close job materializes each ingredient's opening, received, sold-through-recipe, expected close, and last verification, and *restates* a past day when a late invoice posts — so fluidity is recorded, never erased. (Planned as `daily_position`; today `on_hand_estimate` is live-only.)
 
 ---
 
@@ -218,7 +230,7 @@ Strip the restaurant nouns and the pattern is: **a sales feed × a recipe (bill 
 
 | Component | Restaurant-specific? | Adjacent-vertical change |
 |---|---|---|
-| Invoice intake, parse, map, post | No | Vendor layouts and pack vocabulary only |
+| Invoice intake, parse, map, post — including portal pull and outbound quote requests | No | Vendor layouts and pack vocabulary only |
 | Ingredient catalog born from invoices | No | Category enum |
 | Unit normalization (`units.ts`, `packs.ts`) | Partly — volume/mass/each with restaurant pack formats | Add vertical pack formats (rolls, reams, sq ft, linear ft, doses) |
 | Sales feed (`lib/toast`, `flatten.ts` → `sales_facts`) | Yes — Toast-shaped | **The one adapter**: any POS that yields (item id, business date, quantity, voided, net) fits `sales_facts` unchanged |
@@ -247,7 +259,7 @@ Secrets: POS client secret in Vault, read only by service-role code through `sec
 
 Observability is three tables: `sync_runs` (every POS pull), `inbound_events` (every email delivery), `llm_calls` (every model call with raw output, tokens, cost, provider). Between them you can answer "did we get it, did we read it, what did it cost" without logs.
 
-Known gaps at the reference build, in priority order: the Product Mix gate has not yet been run against a Toast Web export (the data is there; the export is not); the Coca-Cola BIB ticket format needs a vendor-specific parse; item reuse-by-name in the mapper can merge distinct products when the matcher returns a generic name (mappings stay unconfirmed, so review can split them — but a second signal, such as vendor SKU or pack text, should gate the merge); the recipe prompt's concept description is hardcoded to Mad Moose; the deprecated Postmark route should be removed after ten Resend invoices.
+Known gaps at the reference build, in priority order: no daily reconciliation table yet (`on_hand_estimate` is a live view, so a late invoice silently rewrites yesterday's variance); the Product Mix gate has not yet been run against a Toast Web export (the data is there; the export is not); the Coca-Cola BIB ticket format needs a vendor-specific parse; item reuse-by-name in the mapper can merge distinct products when the matcher returns a generic name (mappings stay unconfirmed, so review can split them — but a second signal, such as vendor SKU or pack text, should gate the merge); the recipe prompt's concept description is hardcoded to Mad Moose; the deprecated Postmark route should be removed after ten Resend invoices.
 
 ---
 
