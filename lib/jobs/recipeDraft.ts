@@ -152,6 +152,7 @@ async function resolveInventoryItem(
       category: ni.category,
       base_unit: ni.base_unit,
       pack_to_base_factor: ni.pack_to_base_factor == null ? null : numeric(String(ni.pack_to_base_factor)),
+      origin: "recipe_draft",
     })
     .select("id, name, category, base_unit")
     .single();
@@ -282,7 +283,7 @@ export async function draftRecipes(svc: ServiceClient, opts: DraftRecipesOptions
       svc.from("menu_items").select("name").eq("tenant_id", opts.tenantId).eq("category", "modifier").order("name").range(from, to),
     ),
     pageAll<InventoryRow>((from, to) =>
-      svc.from("inventory_items").select("id, name, category, base_unit").eq("tenant_id", opts.tenantId).order("name").range(from, to),
+      svc.from("inventory_items").select("id, name, category, base_unit").eq("tenant_id", opts.tenantId).is("archived_at", null).order("name").range(from, to),
     ),
   ]);
   // No per-item modifier link survives the menu sync; the tenant's modifier

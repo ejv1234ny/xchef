@@ -238,7 +238,7 @@ export async function runDailyPosition(opts: DailyPositionOptions = {}): Promise
 
   const runs: DailyPositionRunSummary[] = [];
   for (const location of locations ?? []) {
-    const { data: items, error: ierr } = await svc.from("inventory_items").select("id, name, cost_per_base_unit").eq("tenant_id", location.tenant_id).order("name");
+    const { data: items, error: ierr } = await svc.from("inventory_items").select("id, name, cost_per_base_unit").eq("tenant_id", location.tenant_id).is("archived_at", null).order("name");
     if (ierr) throw new Error(`read inventory_items: ${ierr.message}`);
     if (!items || items.length === 0) {
       const { data: creds } = await svc.from("toast_credentials").select("location_id").eq("location_id", location.id).maybeSingle();

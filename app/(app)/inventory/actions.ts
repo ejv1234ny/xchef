@@ -62,7 +62,7 @@ export async function createInventoryItem(formData: FormData) {
   const ctx = await getAppContext();
   const supabase = await createServerSupabase();
   const row = parseItem(formData);
-  const { error } = await supabase.from("inventory_items").insert({ ...row, tenant_id: ctx.tenant.id });
+  const { error } = await supabase.from("inventory_items").insert({ ...row, tenant_id: ctx.tenant.id, origin: "manual" });
   if (error) msg("error", friendlyDbError(error.code, error.message));
   revalidatePath("/inventory");
   msg("ok", `Added ${row.name}`);
@@ -91,4 +91,63 @@ export async function deleteInventoryItem(formData: FormData) {
   if (error) msg("error", friendlyDbError(error.code, error.message));
   revalidatePath("/inventory");
   msg("ok", "Item deleted");
+}
+
+/** Archive: hidden from the verify queue and the nightly reconciliation, never deleted (catalog_health status 'archived'). */
+export async function archiveInventoryItem(formData: FormData) {
+  const ctx = await getAppContext();
+  const supabase = await createServerSupabase();
+  const id = z.uuid().safeParse(formData.get("id"));
+  if (!id.success) msg("error", "Missing item id");
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id.data)
+    .eq("tenant_id", ctx.tenant.id)
+    .select("name")
+    .maybeSingle();
+  if (error) msg("error", friendlyDbError(error.code, error.message));
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  msg("ok", `Archived ${data?.name ?? "item"}`);
+}
+
+export async function restoreInventoryItem(formData: FormData) {
+  const ctx = await getAppContext();
+  const supabase = await createServerSupabase();
+  const id = z.uuid().safeParse(formData.get("id"));
+  if (!id.success) msg("error", "Missing item id");
+  const { data, error } = await supabase
+    .from("inventory_items")
+    .update({ archived_at: null, merged_into_id: null })
+    .eq("id", id.data)
+    .eq("tenant_id", ctx.tenant.id)
+    .select("name")
+    .maybeSingle();
+  if (error) msg("error", friendlyDbError(error.code, error.message));
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  msg("ok", `Restored ${data?.name ?? "item"}`);
+}
+
+/**
+ * Merge a never-invoiced (or duplicate) item into the one that should own its
+ * history: recipes, invoice lines, mappings, quotes and counts move to the
+ * target; the source is archived with merged_into_id (merge_inventory_item()).
+ */
+export async function mergeInventoryItem(formData: FormData) {
+  const ctx = await getAppContext();
+  const supabase = await createServerSupabase();
+  const parsed = z.object({ source: z.uuid(), target: z.uuid() }).safeParse({ source: formData.get("id"), target: formData.get("target") });
+  if (!parsed.success) msg("error", "Pick the item to merge into");
+  if (parsed.data.source === parsed.data.target) msg("error", "Pick a different item to merge into");
+  const { data: names } = await supabase.from("inventory_items").select("id, name").in("id", [parsed.data.source, parsed.data.target]).eq("tenant_id", ctx.tenant.id);
+  const byId = new Map((names ?? []).map((n) => [n.id, n.name]));
+  const { error } = await supabase.rpc("merge_inventory_item", { p_source: parsed.data.source, p_target: parsed.data.target });
+  if (error) msg("error", error.message);
+  revalidatePath("/inventory");
+  revalidatePath("/");
+  revalidatePath("/usage");
+  revalidatePath("/menu");
+  msg("ok", `Merged ${byId.get(parsed.data.source) ?? "item"} into ${byId.get(parsed.data.target) ?? "item"}`);
 }

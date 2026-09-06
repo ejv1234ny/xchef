@@ -19,6 +19,7 @@ export default async function PositionPage({ searchParams }: PageProps<"/positio
     .from("inventory_items")
     .select("id, name, base_unit, pack_to_base_factor")
     .eq("tenant_id", ctx.tenant.id)
+    .is("archived_at", null)
     .order("name");
   const list = items ?? [];
   const requested = typeof sp.item === "string" ? sp.item : null;

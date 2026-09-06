@@ -110,6 +110,8 @@ async function ensureInventoryItem(
       category: proposal.category || null,
       base_unit: proposal.base_unit,
       pack_to_base_factor: Number(packToBase.toFixed(4)),
+      origin: "invoice",
+      first_invoiced_at: new Date().toISOString(),
     })
     .select("id, name, category, base_unit, pack_to_base_factor")
     .single();
@@ -144,7 +146,7 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
 
   const [{ data: mappingRows, error: merr }, { data: inventoryRows, error: ierr }, { data: vendorRow }] = await Promise.all([
     svc.from("vendor_item_mappings").select("id, vendor_id, vendor_sku, description_norm, inventory_item_id, units_per_pack, base_units_per_unit, confirmed_at").eq("vendor_id", vendorId),
-    svc.from("inventory_items").select("id, name, category, base_unit, pack_to_base_factor").eq("tenant_id", location.tenant_id).order("name"),
+    svc.from("inventory_items").select("id, name, category, base_unit, pack_to_base_factor").eq("tenant_id", location.tenant_id).is("archived_at", null).order("name"),
     svc.from("vendors").select("name, kind").eq("id", vendorId).maybeSingle(),
   ]);
   if (merr) throw new Error(`read vendor_item_mappings: ${merr.message}`);

@@ -34,6 +34,11 @@ export async function postInvoiceIfResolved(svc: ServiceClient, documentId: stri
 
   const itemIds = [...new Set(rows.filter((l) => isMapped(l.status) && l.inventory_item_id).map((l) => l.inventory_item_id as string))];
   await refreshItemPrices(svc, itemIds, documentId);
+  if (itemIds.length) {
+    // the invoice is the root: the first posted line is the moment an item becomes invoice-backed (catalog_health)
+    const { error: ferr } = await svc.from("inventory_items").update({ first_invoiced_at: new Date().toISOString() }).in("id", itemIds).is("first_invoiced_at", null);
+    if (ferr) console.warn(JSON.stringify({ msg: "post: first_invoiced_at not stamped", error: ferr.message }));
+  }
   return "posted";
 }
 

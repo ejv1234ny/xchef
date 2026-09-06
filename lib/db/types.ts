@@ -84,6 +84,13 @@ export type Database = {
             foreignKeyName: "daily_position_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "daily_position_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -220,36 +227,83 @@ export type Database = {
       }
       inventory_items: {
         Row: {
+          archived_at: string | null
           base_unit: Database["public"]["Enums"]["uom"]
           category: string | null
           cost_per_base_unit: number | null
           created_at: string
+          first_invoiced_at: string | null
           id: string
+          merged_into_id: string | null
           name: string
+          origin: string
           pack_to_base_factor: number | null
           tenant_id: string
         }
         Insert: {
+          archived_at?: string | null
           base_unit: Database["public"]["Enums"]["uom"]
           category?: string | null
           cost_per_base_unit?: number | null
           created_at?: string
+          first_invoiced_at?: string | null
           id?: string
+          merged_into_id?: string | null
           name: string
+          origin?: string
           pack_to_base_factor?: number | null
           tenant_id: string
         }
         Update: {
+          archived_at?: string | null
           base_unit?: Database["public"]["Enums"]["uom"]
           category?: string | null
           cost_per_base_unit?: number | null
           created_at?: string
+          first_invoiced_at?: string | null
           id?: string
+          merged_into_id?: string | null
           name?: string
+          origin?: string
           pack_to_base_factor?: number | null
           tenant_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "inventory_items_tenant_id_fkey"
             columns: ["tenant_id"]
@@ -459,6 +513,13 @@ export type Database = {
           vendor_sku?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "invoice_lines_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -819,6 +880,13 @@ export type Database = {
             foreignKeyName: "recipe_components_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -985,6 +1053,13 @@ export type Database = {
           verification?: Database["public"]["Enums"]["verification_type"]
         }
         Relationships: [
+          {
+            foreignKeyName: "stock_counts_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "stock_counts_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -1304,6 +1379,13 @@ export type Database = {
             foreignKeyName: "vendor_item_mappings_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "vendor_item_mappings_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -1412,6 +1494,13 @@ export type Database = {
           vendor_sku?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -1588,6 +1677,71 @@ export type Database = {
       }
     }
     Views: {
+      catalog_health: {
+        Row: {
+          archived_at: string | null
+          base_unit: Database["public"]["Enums"]["uom"] | null
+          category: string | null
+          created_at: string | null
+          days_since_created: number | null
+          first_invoiced_at: string | null
+          has_invoice_line: boolean | null
+          inventory_item_id: string | null
+          last_purchase_date: string | null
+          merged_into_id: string | null
+          name: string | null
+          origin: string | null
+          posted_line_count: number | null
+          recipe_count: number | null
+          recipe_usage_30d: number | null
+          status: string | null
+          tenant_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_merged_into_id_fkey"
+            columns: ["merged_into_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "inventory_items_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       count_variance: {
         Row: {
           actual_qty: number | null
@@ -1607,6 +1761,13 @@ export type Database = {
           verification: Database["public"]["Enums"]["verification_type"] | null
         }
         Relationships: [
+          {
+            foreignKeyName: "stock_counts_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "stock_counts_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -1735,6 +1896,13 @@ export type Database = {
             foreignKeyName: "invoice_lines_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -1851,6 +2019,13 @@ export type Database = {
             foreignKeyName: "invoice_lines_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -1920,6 +2095,13 @@ export type Database = {
           units_sold: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "recipe_components_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -2003,6 +2185,13 @@ export type Database = {
           usage_cost: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "recipe_components_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -2118,6 +2307,13 @@ export type Database = {
             foreignKeyName: "invoice_lines_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
             isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "invoice_lines_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
             referencedRelation: "inventory_items"
             referencedColumns: ["id"]
           },
@@ -2173,6 +2369,13 @@ export type Database = {
           vendor_sku: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
           {
             foreignKeyName: "vendor_quotes_inventory_item_id_fkey"
             columns: ["inventory_item_id"]
@@ -2315,6 +2518,10 @@ export type Database = {
       get_toast_client_secret: {
         Args: { p_location_id: string }
         Returns: string
+      }
+      merge_inventory_item: {
+        Args: { p_source: string; p_target: string }
+        Returns: undefined
       }
       my_location_ids: { Args: never; Returns: string[] }
       my_tenant_ids: { Args: never; Returns: string[] }
