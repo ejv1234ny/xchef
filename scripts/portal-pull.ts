@@ -21,6 +21,12 @@
  *             clean copy (clean_storage_path) — still no second document
  * Exits non-zero when any adapter fails or the dry run does not behave.
  *
+ * A portal that asks for a one-time code / "remember this device" is logged
+ * into once by hand with `pnpm portal:login --vendor <key>` (headed browser);
+ * the saved state (portal-state/<key>.json, or the base64 GitHub secret
+ * PORTAL_<KEY>_STATE in Actions) is reused here so the adapter never sees the
+ * 2FA prompt. Re-auth: run portal:login again and update the secret.
+ *
  * Runs in GitHub Actions (.github/workflows/portal-pull.yml) — not on Vercel.
  */
 import "./_env";
@@ -29,6 +35,7 @@ import path from "node:path";
 import { arg, hasFlag, log } from "./_env";
 import { parseTransactionLine } from "@/lib/core/sheets";
 import { adapterFor, hasCredentials, PORTAL_ADAPTERS, PORTAL_VENDOR_ALIASES, portalKeys, type PortalInvoice } from "@/lib/portals";
+import { loadPortalState } from "@/lib/portals/shared";
 
 const DEFAULT_LOOKBACK_DAYS = 14;
 const OVERLAP_DAYS = 3;
@@ -140,7 +147,9 @@ async function runAdapters(): Promise<number> {
     for (const key of ready) {
       const adapter = PORTAL_ADAPTERS[key];
       const t0 = Date.now();
-      const context = await browser.newContext({ acceptDownloads: true });
+      const saved = loadPortalState(key);
+      if (saved) log("portal-pull: using saved browser state", { vendor: adapter.vendor, source: saved.source });
+      const context = await browser.newContext({ acceptDownloads: true, ...(saved ? { storageState: saved.state as never } : {}) });
       const page = await context.newPage();
       try {
         const since = arg("since") ?? (await sinceFromDb(key, adapter.vendor)) ?? isoDaysAgo(DEFAULT_LOOKBACK_DAYS);

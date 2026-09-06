@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { Download, Locator, Page } from "playwright";
 import type { PortalLog, PortalPullContext } from "./types";
@@ -96,4 +96,42 @@ export function toIsoDate(s: string | null | undefined): string | null {
 export function toUsDate(iso: string): string {
   const [y, m, d] = iso.split("-");
   return `${m}/${d}/${y}`;
+}
+
+/**
+ * Saved browser state (cookies + localStorage) for portals that ask for a
+ * one-time code or "remember this device": captured once with
+ * `pnpm portal:login --vendor <key>` into portal-state/<key>.json (gitignored)
+ * and handed to CI as the base64 GitHub secret PORTAL_<KEY>_STATE. Returns a
+ * Playwright storageState object, or undefined when neither exists.
+ */
+export const PORTAL_STATE_DIR = "portal-state";
+
+export function stateEnvName(key: string): string {
+  return `PORTAL_${key.toUpperCase()}_STATE`;
+}
+
+export function statePath(key: string, dir = PORTAL_STATE_DIR): string {
+  return path.join(dir, `${slug(key)}.json`);
+}
+
+export function loadPortalState(key: string, env: NodeJS.ProcessEnv = process.env, dir = PORTAL_STATE_DIR): { state: Record<string, unknown>; source: "env" | "file" } | undefined {
+  const fromEnv = env[stateEnvName(key)];
+  if (fromEnv) {
+    try {
+      return { state: JSON.parse(Buffer.from(fromEnv, "base64").toString("utf8")) as Record<string, unknown>, source: "env" };
+    } catch {
+      throw new Error(`${stateEnvName(key)} is not base64-encoded JSON (capture it with pnpm portal:login --vendor ${key})`);
+    }
+  }
+  const file = statePath(key, dir);
+  if (existsSync(file)) return { state: JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>, source: "file" };
+  return undefined;
+}
+
+export function savePortalState(key: string, state: unknown, dir = PORTAL_STATE_DIR): string {
+  mkdirSync(dir, { recursive: true });
+  const file = statePath(key, dir);
+  writeFileSync(file, JSON.stringify(state, null, 2));
+  return file;
 }

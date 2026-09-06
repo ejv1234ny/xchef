@@ -8,6 +8,8 @@
 #   XCHEF_INTAKE_KEY      same value as INTAKE_API_KEY on Vercel
 #   PORTAL_PFG_USER / PORTAL_PFG_PASS      Performance Food Group customer portal
 #   PORTAL_SYSCO_USER / PORTAL_SYSCO_PASS  Sysco Shop
+#   PORTAL_PFG_STATE / PORTAL_SYSCO_STATE  optional: base64 of portal-state/<key>.json captured with
+#                                          `pnpm portal:login --vendor <key>` after a 2FA / "remember this device" login
 # The script only reads the database (for max(invoice_date) per vendor) when
 # NEXT_PUBLIC_SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are present; without
 # them it pulls the last 14 days. They are deliberately NOT passed here — the
@@ -44,6 +46,8 @@ jobs:
       PORTAL_PFG_PASS: ${{ secrets.PORTAL_PFG_PASS }}
       PORTAL_SYSCO_USER: ${{ secrets.PORTAL_SYSCO_USER }}
       PORTAL_SYSCO_PASS: ${{ secrets.PORTAL_SYSCO_PASS }}
+      PORTAL_PFG_STATE: ${{ secrets.PORTAL_PFG_STATE }}
+      PORTAL_SYSCO_STATE: ${{ secrets.PORTAL_SYSCO_STATE }}
       # scheduled runs are real pulls; manual runs default to the dry run
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
       ONLY_VENDOR: ${{ github.event_name == 'workflow_dispatch' && inputs.vendor || '' }}

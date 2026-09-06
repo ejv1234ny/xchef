@@ -51,3 +51,7 @@ fixtures/toast/*.json
 !fixtures/**/.gitkeep
 # real vendor exports stay local; synthetic-*.csv/xlsx fixtures are committed
 fixtures/invoices/Restaurant_Depot*.xlsx
+
+# vendor-portal browser sessions (cookies) and failure screenshots — local only
+portal-state/
+artifacts/
