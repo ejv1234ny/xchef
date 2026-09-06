@@ -9,6 +9,7 @@ import { computeLineTotals, resolveLine, type InventoryRef, type LineInput, type
 import { isUom } from "@/lib/core/units";
 import { parsePackSize } from "@/lib/core/packs";
 import { inferBottleSize } from "@/lib/core/liquor";
+import { inferBibSize } from "@/lib/core/beverage";
 import { getLocation, type Logger } from "./intake";
 
 /** The post step lives in postInvoice.ts; re-exported here because the UI imports both from this module. */
@@ -152,7 +153,9 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
   const inventoryFull = inventoryRows ?? [];
   const inventory: InventoryRef[] = inventoryFull.filter((i) => isUom(i.base_unit)).map((i) => ({ id: i.id, name: i.name, base_unit: i.base_unit, pack_to_base_factor: i.pack_to_base_factor }));
   const vendorName = vendorRow?.name ?? "vendor";
-  const retailLiquor = vendorRow?.kind === "retail_liquor";
+  const vendorKind = vendorRow?.kind ?? "distributor";
+  const retailLiquor = vendorKind === "retail_liquor";
+  const beverage = vendorKind === "beverage_distributor";
   const llmOk = isLlmConfigured();
 
   for (const line of lines) {
@@ -186,8 +189,20 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
         line.pack_size_assumed = inferred.assumed;
       }
     }
+    if (beverage) {
+      // Bag-in-box tickets write the size into the product name ("2.5GBIB COKE"); a 2.5 gal box defaults to 320 fl oz.
+      const parsedNow = parsePackSize(line.pack_size_text, "oz");
+      if (!line.pack_size_text || parsedNow.source === "unknown") {
+        const bib = inferBibSize(line.description);
+        if (bib) {
+          await svc.from("invoice_lines").update({ pack_size_text: bib.text, pack_size_assumed: true }).eq("id", line.id);
+          line.pack_size_text = bib.text;
+          line.pack_size_assumed = true;
+        }
+      }
+    }
     const input = toLineInput(line);
-    let r = resolveLine({ line: input, vendorId, mappings, inventory });
+    let r = resolveLine({ line: input, vendorId, mappings, inventory, vendorKind });
 
     if (r.status === "unmapped" && llmOk) {
       let sm: SkuMatch | null = null;
@@ -212,7 +227,7 @@ export async function mapInvoiceDocument(svc: ServiceClient, documentId: string,
         await logLlmCall(svc, { tenant_id: location.tenant_id, kind: "sku-match", ref_id: line.id, model: modelFor(selectedProviderName(), "sku-match"), provider: selectedProviderName(), error: msg });
         log("invoice-map: sku-match failed", { lineId: line.id, error: msg });
       }
-      if (sm) r = resolveLine({ line: input, vendorId, mappings, inventory, skuMatch: sm });
+      if (sm) r = resolveLine({ line: input, vendorId, mappings, inventory, skuMatch: sm, vendorKind });
     }
 
     // The invoice IS the catalog: a line the AI calls "new" with a known pack

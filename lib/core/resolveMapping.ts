@@ -2,6 +2,8 @@ import Decimal from "decimal.js";
 import type { Tables } from "@/lib/db/types";
 import { parsePackSize, type PackParse } from "./packs";
 import { fixed4, fixed6, isUom, type Uom } from "./units";
+import { familyHint, isGasCylinderLine } from "./beverage";
+import { findNameMatch } from "./nameMatch";
 
 /**
  * Map-job step 1–4 as a pure function (architecture.md §4.3). No I/O: the job
@@ -11,8 +13,15 @@ import { fixed4, fixed6, isUom, type Uom } from "./units";
  *   1. (vendor_id, vendor_sku) mapping        → auto_mapped, mapping's pack numbers
  *   2. (vendor_id, description_norm) mapping  → auto_mapped, mapping's pack numbers
  *   3. fee / deposit / tax / discount line    → ignored
+ *      (beverage distributors: CO2 / gas cylinder lines → ignored too)
+ *   3b. deterministic name match (lib/core/nameMatch.ts): the line's words are
+ *      contained in exactly one existing item's name → that item, no LLM call
+ *      when the pack is readable. A draft-born "Tito's Handmade Vodka" wins over
+ *      creating a second vodka.
  *   4. LLM sku-match: not_inventory → ignored; existing ≥ 0.92 → auto_mapped with a
- *      proposed (unconfirmed) mapping; otherwise unmapped with proposals
+ *      proposed (unconfirmed) mapping; otherwise unmapped with proposals. A "new"
+ *      verdict (or a low-confidence "existing") whose name matches an existing
+ *      item by rule 3b is turned into that existing item.
  *
  * The owner's edit (a mapping row) beats a parsed pack size, which beats a
  * default, which beats the LLM's guess (CLAUDE.md rule 4).
@@ -212,6 +221,8 @@ export function resolveLine(input: {
   inventory: InventoryRef[];
   skuMatch?: SkuMatch | null;
   isCredit?: boolean;
+  /** vendors.kind — 'beverage_distributor' ignores gas cylinder lines */
+  vendorKind?: string | null;
 }): Resolution {
   const { line, vendorId, mappings, inventory } = input;
   const isCredit = Boolean(input.isCredit);
@@ -231,11 +242,42 @@ export function resolveLine(input: {
   // 3. fee / deposit / tax
   const cat = (line.ai_category_guess ?? "").trim().toLowerCase();
   if (cat && NON_INVENTORY_CATEGORIES.has(cat)) return ignored(`${cat} line — not inventory`);
+  if (input.vendorKind === "beverage_distributor" && isGasCylinderLine(line.description)) return ignored("CO2 / gas cylinder — not inventory (gas is not tracked)");
+
+  // 3b. deterministic name match against the catalog (draft-born items included)
+  const byName = findNameMatch([line.description], inventory);
+  let sm = input.skuMatch;
+  if (!sm && byName) {
+    const item = inventory.find((i) => i.id === byName.id)!;
+    const pack = choosePack(line.pack_size_text, item.base_unit, null);
+    if (pack.base_units_per_unit) {
+      const totals = computeLineTotals(line, pack.units_per_pack, pack.base_units_per_unit, isCredit);
+      return {
+        status: "auto_mapped",
+        mapping_id: null,
+        inventory_item_id: item.id,
+        units_per_pack: fixed4(pack.units_per_pack),
+        base_units_per_unit: fixed4(pack.base_units_per_unit),
+        ...totals,
+        pack_source: pack.source,
+        assumed_text: pack.assumed_text,
+        proposed_mapping: { vendor_sku: sku, description_norm: descNorm, units_per_pack: fixed4(pack.units_per_pack), base_units_per_unit: fixed4(pack.base_units_per_unit), brand: null, pack_description: line.pack_size_text ?? null },
+        reason: `name matched existing item "${item.name}" (${byName.reason})`,
+      };
+    }
+    // pack unknown: let the model read the pack; the name match is re-applied to its verdict below
+  }
 
   // 4. LLM
-  const sm = input.skuMatch;
   if (!sm) return unmapped("no saved mapping for this vendor SKU / description; needs review");
   if (sm.choice === "not_inventory") return ignored(`not inventory: ${sm.reason}`);
+
+  // A "new" verdict (or a hesitant "existing") for a product the catalog already has → the existing item.
+  if (sm.choice === "new" || (sm.choice === "existing" && sm.confidence < AUTO_MAP_CONFIDENCE)) {
+    const family = input.vendorKind === "beverage_distributor" ? familyHint(line.description) : null;
+    const nm = findNameMatch([line.description, sm.new_item?.name ?? null], inventory) ?? (family ? findNameMatch([family], inventory) : null);
+    if (nm) sm = { ...sm, choice: "existing", inventory_item_id: nm.id, new_item: null, confidence: Math.max(sm.confidence, 0.95), reason: `existing "${nm.name}" by name (${nm.reason}); model said: ${sm.reason}` };
+  }
 
   if (sm.choice === "existing" && sm.inventory_item_id) {
     const item = inventory.find((i) => i.id === sm.inventory_item_id);

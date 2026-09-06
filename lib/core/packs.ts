@@ -57,6 +57,10 @@ export const DEFAULT_PACKS: Record<string, PackDefault> = {
   "1.75l": { id: "1.75l", label: "1.75 L bottle", size: "1750", unit: "ml", assumed_text: "1.75 L handle = 59.1745 oz (assumed)" },
   "12oz can": { id: "12oz can", label: "12 oz can", size: "12", unit: "oz", assumed_text: "12 oz can (assumed)" },
   "16oz can": { id: "16oz can", label: "16 oz can", size: "16", unit: "oz", assumed_text: "16 oz can (assumed)" },
+  // Fountain syrup bag-in-box (Coca-Cola / Pepsi distributors write "2.5GBIB" into the product name)
+  "2.5gal bib": { id: "2.5gal bib", label: "2.5 gal bag-in-box", size: "2.5", unit: "gal", assumed_text: "2.5 gal bag-in-box = 320 fl oz / 9.46 L (assumed)" },
+  "3gal bib": { id: "3gal bib", label: "3 gal bag-in-box", size: "3", unit: "gal", assumed_text: "3 gal bag-in-box = 384 fl oz (assumed)" },
+  "5gal bib": { id: "5gal bib", label: "5 gal bag-in-box", size: "5", unit: "gal", assumed_text: "5 gal bag-in-box = 640 fl oz / 18.93 L (assumed)" },
 };
 
 /**
@@ -72,8 +76,11 @@ const DEFAULT_WORDS: Array<{ re: RegExp; id: string }> = [
   { re: /^(?:HANDLE)$/i, id: "1.75l" },
   { re: /^(?:12\s*OZ\s*CANS?|CANS?\s*12\s*OZ)$/i, id: "12oz can" },
   { re: /^(?:16\s*OZ\s*CANS?|CANS?\s*16\s*OZ|TALL\s*BOYS?)$/i, id: "16oz can" },
+  { re: /^(?:2\.5\s*(?:G|GAL|GALLON)?\s*BIB|BIB\s*2\.5\s*(?:G|GAL|GALLON)?)$/i, id: "2.5gal bib" },
+  { re: /^(?:3\s*(?:G|GAL|GALLON)?\s*BIB|BIB\s*3\s*(?:G|GAL|GALLON)?)$/i, id: "3gal bib" },
+  { re: /^(?:5\s*(?:G|GAL|GALLON)?\s*BIB|BIB\s*5\s*(?:G|GAL|GALLON)?)$/i, id: "5gal bib" },
 ];
-const KEG_WORD = /BBL|BARREL|KEG|FIFTH|LITER|LITRE|LTR|HANDLE|CAN/i;
+const KEG_WORD = /BBL|BARREL|KEG|FIFTH|LITER|LITRE|LTR|HANDLE|CAN|BIB/i;
 
 const CASE_WORDS = /^(?:CS|CASE|BX|BOX|BAG|BG|PAIL|PL|TUB|JUG|DRUM|CTN|CARTON|PK|PACK|PKG|SLEEVE|FLAT|C|U)$/i;
 const EACH_WORDS = /^(?:EA|EACH|UNIT|PC|PCS|PIECE|CT)$/i;

@@ -1,0 +1,21 @@
+{
+  "_note": "Coca-Cola Beverages Northeast bag-in-box delivery ticket, invoice 50243761006, delivered 2025-12-16 (the file was misnamed invoicesfarel4.pdf until KICKOFF-3). Hand-checked against the scan: the bold category headers ('2.5 GALLO 1-Ls JUICE DRI 3/3 253.17', 'SPARKLING 5/5 334.00', 'TEA 1/1 66.80', '20 POUND 1-Ls OTHER NON 1/1 80.00') are group subtotals, never lines. 8 product rows = TOTAL PRODUCTS 733.97 (MM LMNT NC x2 133.60, MMOR CRNBRY J x1 119.57, COKE x2 133.60, DT COKE 66.80, SPRITE 66.80, SEAG G ALE 66.80, GP PRE tea 66.80, 20#CYL CO2 FULL #1 80.00); the CO2 cylinder also appears under DEPOSITS ON SALES (100.00) as a deposit line. NET PRODUCT QTY 10 is the quantity sum. Each product carries its own MAT#.",
+  "documents": [
+    {
+      "vendor_name": "Coca Cola Beverages Northeast",
+      "receipt_id": "50243761006",
+      "line_count": 8,
+      "printed_item_count": 10,
+      "subtotal": 733.97,
+      "exact_subtotal": true,
+      "forbid_description_pattern": "^2\\.5 GALLO|^20 POUND|1-Ls|^\\[",
+      "distinct_skus": true,
+      "lines_must_include": [
+        { "description_contains": "COKE", "pack_size_text": "2.5 GAL BIB", "extended_price": 133.6 },
+        { "description_contains": "SPRITE", "pack_size_text": "2.5 GAL BIB", "quantity": 1, "extended_price": 66.8 },
+        { "description_contains": "CO2", "extended_price": 80.0 },
+        { "description_contains": "[TEA]", "pack_size_text": "2.5 GAL BIB", "extended_price": 66.8 }
+      ]
+    }
+  ]
+}

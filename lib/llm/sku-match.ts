@@ -73,6 +73,8 @@ Pack size: you are given the pack size text from the invoice and a parse of it c
 
 Standard sizes to know: #10 can ≈ 106 oz (102–128 by product), #5 can ≈ 56 oz, #300 can ≈ 15 oz, 750 ml = 25.36 oz, 1 L = 33.81 oz, 1.75 L = 59.17 oz, 1 gal = 128 fl oz, sixth-barrel keg ≈ 661 oz, half-barrel keg = 1984 oz. "Z" means oz; "#" after a number means lb.
 
+Prefer an existing item whenever the line is the same product: inventory names may carry qualifiers in parentheses ("Coke (Fountain or Bottle)", "Lemonade (Housemade or Pre-mix)"), a brand spelled differently ("Tito's Handmade Vodka" for "TITOS VODKA 750"), or a pack the line does not mention — a bag-in-box fountain syrup IS the fountain drink. Only choose new when no listed item is the same ingredient.
+
 Confidence ≥ 0.92 only when the match is unambiguous (same ingredient and the units line up). Be strict: "Tequila - Blanco" vs "Tequila - Reposado" are different items.`;
 
 export type SkuMatchInput = {

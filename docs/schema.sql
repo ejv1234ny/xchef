@@ -1127,3 +1127,16 @@ alter view vendor_quotes_latest     set (security_invoker = true);
 alter view forward_price_model      set (security_invoker = true);
 alter view vendor_price_comparison  set (security_invoker = true);
 alter view vendor_switch_savings    set (security_invoker = true);
+
+-- ============================================================================
+--  MIGRATION 0014 (20260906090000_beverage_distributor.sql, applied)
+--  vendors.kind gains 'beverage_distributor' (Coca-Cola Beverages Northeast,
+--  Pepsi bag-in-box tickets): product identity comes from the product row
+--  (MAT# / UPC / flavor), never the "2.5 GALLO 1-Ls …" category header; a
+--  2.5 gal BIB defaults to 320 fl oz (lib/core/packs.ts DEFAULT_PACKS, always
+--  overridable); CO2 / gas cylinder lines are ignored as non-inventory.
+--  Data fix: the learned header mapping → "Juice Drink" is removed and its
+--  lines reset to unmapped for the re-parse + remap.
+-- ============================================================================
+alter table vendors drop constraint if exists vendors_kind_check;
+alter table vendors add constraint vendors_kind_check check (kind in ('distributor','retail_liquor','beverage_distributor','other'));

@@ -10,7 +10,22 @@ config({ path: path.resolve(__dirname, "../../.env.local"), quiet: true });
 
 const FIXTURES = path.join(__dirname, "../../fixtures/invoices");
 
-type ExpectedDoc = { vendor_name: string; receipt_id?: string | null; invoice_date?: string | null; line_count: number; subtotal: number | null; printed_item_count?: number | null; has_adjustments?: boolean; exact_subtotal?: boolean };
+type ExpectedDoc = {
+  vendor_name: string;
+  receipt_id?: string | null;
+  invoice_date?: string | null;
+  line_count: number;
+  subtotal: number | null;
+  printed_item_count?: number | null;
+  has_adjustments?: boolean;
+  exact_subtotal?: boolean;
+  /** regex (case-insensitive) no line description may match — e.g. a category header the parser used to emit as a product */
+  forbid_description_pattern?: string;
+  /** every product line carries its own vendor_sku and no two product lines share one */
+  distinct_skus?: boolean;
+  /** lines that must be present: description contains (case-insensitive) → expected pack / quantity / extended */
+  lines_must_include?: Array<{ description_contains: string; pack_size_text?: string | null; quantity?: number; extended_price?: number }>;
+};
 type Expected = { documents: ExpectedDoc[] } | { vendor_name: string; line_count: number; subtotal: number | null };
 
 function toDocs(e: Expected): ExpectedDoc[] {
@@ -134,6 +149,24 @@ describe.skipIf(!isLlmConfigured() || fixtures.length === 0)("parseInvoiceDocume
           }
           if (exp.has_adjustments) expect(d.lines.some((l) => (l.adjustment ?? 0) > 0)).toBe(true);
           expect(d.lines.some((l) => /discount|promo|coupon/i.test(l.description) && !l.vendor_sku)).toBe(false);
+          if (exp.forbid_description_pattern) {
+            const re = new RegExp(exp.forbid_description_pattern, "i");
+            expect(d.lines.filter((l) => re.test(l.description)).map((l) => l.description)).toEqual([]);
+          }
+          if (exp.distinct_skus) {
+            const products = d.lines.filter((l) => !["tax", "fee", "deposit"].includes(l.category_guess.toLowerCase()));
+            const skus = products.map((l) => (l.vendor_sku ?? "").trim());
+            expect(skus.every(Boolean)).toBe(true);
+            expect(new Set(skus).size).toBe(skus.length);
+          }
+          const squash = (t: string | null | undefined) => (t == null ? null : t.replace(/\s+/g, ""));
+          for (const want of exp.lines_must_include ?? []) {
+            const hit = d.lines.find((l) => l.description.toLowerCase().includes(want.description_contains.toLowerCase()));
+            expect(hit, `line containing "${want.description_contains}"`).toBeDefined();
+            if (want.pack_size_text !== undefined) expect(squash(hit!.pack_size_text)).toBe(squash(want.pack_size_text));
+            if (want.quantity !== undefined) expect(hit!.quantity).toBe(want.quantity);
+            if (want.extended_price !== undefined) expect(hit!.extended_price).toBeCloseTo(want.extended_price, 2);
+          }
         });
       },
       180_000,

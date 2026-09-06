@@ -223,9 +223,9 @@ describe("resolveLine — (e) credit memos", () => {
 });
 
 describe("resolveLine — LLM thresholds and proposals", () => {
-  it("existing below 0.92 → unmapped with the proposal attached", () => {
+  it("existing below 0.92 → unmapped with the proposal attached (a branded description the name rule cannot confirm)", () => {
     const r = resolveLine({
-      line: line({ vendor_sku: "S1", description: "KETCHUP 6/#10", pack_size_text: "6/#10", extended_price: "60" }),
+      line: line({ vendor_sku: "S1", description: "HEINZ TOMATO KETCHUP 6/#10", pack_size_text: "6/#10", extended_price: "60" }),
       vendorId: SYSCO,
       mappings: [],
       inventory,
@@ -284,5 +284,93 @@ describe("helpers", () => {
   it("computeLineTotals returns null cost when price or quantity is missing", () => {
     expect(computeLineTotals({ quantity: "0", extended_price: "10" }, new Decimal(1), new Decimal(1), false).cost_per_base_unit).toBeNull();
     expect(computeLineTotals({ quantity: "2", extended_price: null }, new Decimal(1), new Decimal(1), false)).toEqual({ quantity_base_unit: "2.0000", cost_per_base_unit: null });
+  });
+});
+
+describe("resolveLine — name match: draft-born items win over duplicates (KICKOFF-3 item 3)", () => {
+  const TITOS = "item-titos";
+  const WELL = "item-well-vodka";
+  const COKE = "item-coke";
+  const DIET = "item-diet-coke";
+  const catalog: InventoryRef[] = [
+    ...inventory,
+    { id: TITOS, name: "Tito's Handmade Vodka", base_unit: "oz", pack_to_base_factor: 25.36 },
+    { id: WELL, name: "Vodka - Well", base_unit: "oz", pack_to_base_factor: 33.81 },
+    { id: COKE, name: "Coke (Fountain or Bottle)", base_unit: "oz", pack_to_base_factor: null },
+    { id: DIET, name: "Diet Coke (Fountain or Bottle)", base_unit: "oz", pack_to_base_factor: null },
+  ];
+
+  it("TITOS VODKA 750 with the model proposing a NEW Tito's Vodka maps to the existing draft-born item", () => {
+    const r = resolveLine({
+      line: line({ vendor_sku: "88021", description: "TITOS VODKA 750", pack_size_text: "750ML", quantity: "6", unit_price: "21.99", extended_price: "131.94" }),
+      vendorId: "vendor-802",
+      mappings: [],
+      inventory: catalog,
+      skuMatch: match({ choice: "new", inventory_item_id: null, new_item: { name: "Tito's Vodka", category: "liquor", base_unit: "oz" }, confidence: 0.9, reason: "not in list" }),
+    });
+    expect(r.status).toBe("auto_mapped");
+    expect(r.inventory_item_id).toBe(TITOS);
+    expect(r.proposed_new_item ?? null).toBeNull();
+    expect(r.proposed_mapping?.base_units_per_unit).toBe("25.3605");
+    expect(num(r.quantity_base_unit)).toBeCloseTo(6 * 25.3605, 3);
+    expect(r.reason).toContain("by name");
+  });
+
+  it("the same line with no model verdict maps deterministically when the pack is readable (no LLM call needed)", () => {
+    const r = resolveLine({ line: line({ description: "TITOS VODKA 750", pack_size_text: "750ML", quantity: "1", extended_price: "21.99" }), vendorId: "vendor-802", mappings: [], inventory: catalog });
+    expect(r.status).toBe("auto_mapped");
+    expect(r.inventory_item_id).toBe(TITOS);
+    expect(r.pack_source).toBe("parsed");
+  });
+
+  it("a hesitant existing verdict is confirmed by the name; Diet Coke never lands on Coke", () => {
+    const hesitant = resolveLine({
+      line: line({ description: "2.5GBIB DT COKE", pack_size_text: "2.5 GAL BIB", quantity: "1", extended_price: "66.80" }),
+      vendorId: "vendor-coke",
+      mappings: [],
+      inventory: catalog,
+      skuMatch: match({ choice: "existing", inventory_item_id: COKE, confidence: 0.7, reason: "probably coke" }),
+    });
+    expect(hesitant.status).toBe("auto_mapped");
+    expect(hesitant.inventory_item_id).toBe(DIET);
+    expect(hesitant.pack_source).toBe("default");
+    expect(num(hesitant.cost_per_base_unit)).toBeCloseTo(66.8 / 320, 5);
+  });
+
+  it("a bare generic word does not claim a branded item — falls through to the model", () => {
+    const r = resolveLine({ line: line({ description: "VODKA 1.75L", pack_size_text: "1.75L", quantity: "1" }), vendorId: "vendor-802", mappings: [], inventory: catalog });
+    expect(r.status).toBe("unmapped");
+  });
+});
+
+describe("resolveLine — beverage distributor tickets (KICKOFF-3 item 2)", () => {
+  const COKE = "item-coke";
+  const catalog: InventoryRef[] = [...inventory, { id: COKE, name: "Coke (Fountain or Bottle)", base_unit: "oz", pack_to_base_factor: null }];
+  it("a 2.5 gal bag-in-box maps to the fountain item at 320 fl oz per box (default, shown as assumed)", () => {
+    const r = resolveLine({ line: line({ vendor_sku: "103886", description: "2.5GBIB COKE", pack_size_text: "2.5 GAL BIB", quantity: "2", unit_price: "66.80", extended_price: "133.60" }), vendorId: "vendor-coke", mappings: [], inventory: catalog, vendorKind: "beverage_distributor" });
+    expect(r.status).toBe("auto_mapped");
+    expect(r.inventory_item_id).toBe(COKE);
+    expect(r.base_units_per_unit).toBe("320.0000");
+    expect(num(r.quantity_base_unit)).toBe(640);
+    expect(num(r.cost_per_base_unit)).toBeCloseTo(133.6 / 640, 6);
+    expect(r.assumed_text).toContain("assumed");
+  });
+  it("an unreadable product name with the parser's [TEA] family hint lands on the stocked iced tea, not a new item", () => {
+    const TEA = "item-tea";
+    const r = resolveLine({
+      line: line({ vendor_sku: "132765", description: "2.5GBIB GP PRE-LMND T [TEA]", pack_size_text: "2.5 GAL BIB", quantity: "1", extended_price: "66.80" }),
+      vendorId: "vendor-coke",
+      mappings: [],
+      inventory: [...catalog, { id: TEA, name: "Iced Tea (Housemade or Pre-mix)", base_unit: "oz", pack_to_base_factor: 128 }],
+      skuMatch: match({ choice: "new", inventory_item_id: null, new_item: { name: "Green Tea Pre-mix BIB", category: "beverage", base_unit: "oz" }, confidence: 0.9, reason: "not in list" }),
+      vendorKind: "beverage_distributor",
+    });
+    expect(r.status).toBe("auto_mapped");
+    expect(r.inventory_item_id).toBe(TEA);
+  });
+  it("CO2 cylinders on a beverage ticket are ignored as gas, not inventory; on other vendors they still go to the model", () => {
+    const l = line({ vendor_sku: "104631", description: "20#CYL CO2 FULL #1", pack_size_text: null, quantity: "1", unit_price: "80", extended_price: "80", ai_category_guess: "beverage" });
+    expect(resolveLine({ line: l, vendorId: "vendor-coke", mappings: [], inventory: catalog, vendorKind: "beverage_distributor" }).status).toBe("ignored");
+    expect(resolveLine({ line: l, vendorId: "vendor-rd", mappings: [], inventory: catalog, vendorKind: "distributor" }).status).toBe("unmapped");
   });
 });

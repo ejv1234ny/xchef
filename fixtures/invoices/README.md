@@ -8,6 +8,7 @@ and replay scripts.
 | `Ferril.pdf`, `InvoiceFarrel.pdf`, `invoicefarrel*.pdf`, `invoicesfarel4.pdf` | Farrell Distributing (VT beer/wine/liquor) invoices |
 | `RD*.pdf`, `rd 6-10*.pdf`, `invoice80*.pdf` | Restaurant Depot register receipts (scans / phone photos) |
 | `Invoices.pdf` | multi-page scan bundle |
+| `coca-cola-ne-bib-ticket.pdf` | Coca-Cola Beverages Northeast bag-in-box delivery ticket (category headers are subtotals, not lines; CO2 cylinder sale + deposit) |
 | `Restaurant_Depot_Receipts.xlsx` | receipt scans transcribed to one sheet per receipt (import with `pnpm invoices:import-xlsx`) |
 | `Restaurant_Depot_Items_8-6.xlsx` | the same lines grouped by category (used only for the category guess) |
 
