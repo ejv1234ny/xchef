@@ -1527,3 +1527,12 @@ left join sales s on s.location_id = d.location_id and s.business_date = d.busin
 left join usage u on u.location_id = d.location_id and u.business_date = d.business_date
 left join daily_labor l on l.location_id = d.location_id and l.business_date = d.business_date;
 alter view daily_cost_summary set (security_invoker = true);
+
+-- ============================================================================
+--  MIGRATION 0019 (20260906140000_security_invoker_fix.sql, applied)
+--  purchases_by_item / item_price_history back to security_invoker (migration
+--  0013 had re-created them without it); merge_inventory_item() not callable by anon.
+-- ============================================================================
+alter view purchases_by_item   set (security_invoker = true);
+alter view item_price_history  set (security_invoker = true);
+revoke execute on function merge_inventory_item(uuid, uuid) from anon;
