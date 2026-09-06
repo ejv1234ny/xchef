@@ -180,6 +180,22 @@ export class ToastClient {
     return Array.isArray(body) ? body : [];
   }
 
+  /** GET /labor/v1/timeEntries for a window (Toast allows ≤ 30 days; scope labor:read). Untyped here; lib/core/labor.ts validates. */
+  async timeEntries(start: Date, end: Date): Promise<unknown[]> {
+    const res = await this.get("/labor/v1/timeEntries", { startDate: toToastDate(start), endDate: toToastDate(end) });
+    if (!res.ok) throw new Error(`timeEntries ${res.status}: ${await res.text()}`);
+    const body: unknown = await res.json();
+    return Array.isArray(body) ? body : [];
+  }
+
+  /** GET /labor/v1/jobs: job guid → title (no employee details are ever requested). */
+  async jobs(): Promise<unknown[]> {
+    const res = await this.get("/labor/v1/jobs");
+    if (!res.ok) throw new Error(`jobs ${res.status}: ${await res.text()}`);
+    const body: unknown = await res.json();
+    return Array.isArray(body) ? body : [];
+  }
+
   /** GET /stock/v1/inventory (scope stock:read): the items currently OUT_OF_STOCK or at a QUANTITY. Untyped here; lib/core/stock.ts validates. */
   async stockInventory(): Promise<unknown[]> {
     const res = await this.get("/stock/v1/inventory");

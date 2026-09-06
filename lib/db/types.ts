@@ -602,6 +602,108 @@ export type Database = {
           },
         ]
       }
+      labor_entries: {
+        Row: {
+          business_date: string
+          cash_tips: number | null
+          clock_in: string | null
+          clock_out: string | null
+          created_at: string
+          deleted: boolean
+          employee_guid: string | null
+          id: string
+          job_guid: string | null
+          job_title: string | null
+          location_id: string
+          non_cash_tips: number | null
+          overtime_hours: number
+          regular_hours: number
+          synced_at: string
+          tips_declared: number | null
+          toast_guid: string
+          toast_modified_at: string | null
+          wage: number | null
+        }
+        Insert: {
+          business_date: string
+          cash_tips?: number | null
+          clock_in?: string | null
+          clock_out?: string | null
+          created_at?: string
+          deleted?: boolean
+          employee_guid?: string | null
+          id?: string
+          job_guid?: string | null
+          job_title?: string | null
+          location_id: string
+          non_cash_tips?: number | null
+          overtime_hours?: number
+          regular_hours?: number
+          synced_at?: string
+          tips_declared?: number | null
+          toast_guid: string
+          toast_modified_at?: string | null
+          wage?: number | null
+        }
+        Update: {
+          business_date?: string
+          cash_tips?: number | null
+          clock_in?: string | null
+          clock_out?: string | null
+          created_at?: string
+          deleted?: boolean
+          employee_guid?: string | null
+          id?: string
+          job_guid?: string | null
+          job_title?: string | null
+          location_id?: string
+          non_cash_tips?: number | null
+          overtime_hours?: number
+          regular_hours?: number
+          synced_at?: string
+          tips_declared?: number | null
+          toast_guid?: string
+          toast_modified_at?: string | null
+          wage?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
       llm_calls: {
         Row: {
           cost_usd: number | null
@@ -1992,6 +2094,71 @@ export type Database = {
           },
           {
             foreignKeyName: "stock_counts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
+      daily_cost_summary: {
+        Row: {
+          business_date: string | null
+          labor_cost: number | null
+          labor_hours: number | null
+          labor_pct: number | null
+          location_id: string | null
+          net_sales: number | null
+          tips: number | null
+          units_sold: number | null
+          usage_cost: number | null
+          usage_pct: number | null
+        }
+        Relationships: []
+      }
+      daily_labor: {
+        Row: {
+          business_date: string | null
+          employees: number | null
+          entries: number | null
+          hours: number | null
+          labor_cost: number | null
+          location_id: string | null
+          overtime_hours: number | null
+          regular_hours: number | null
+          tips: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "labor_entries_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
             referencedRelation: "verification_queue"

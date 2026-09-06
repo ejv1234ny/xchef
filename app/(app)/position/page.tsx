@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getAppContext } from "@/lib/db/context";
 import { createServerSupabase } from "@/lib/db/server";
 import type { Tables } from "@/lib/db/types";
-import { Chip, fmtDate, fmtMoney, fmtQty, Flash } from "@/components/ui-format";
+import { Chip, fmtDate, fmtMoney, fmtPctChange, fmtQty, Flash } from "@/components/ui-format";
 import { PositionItemSelect } from "@/components/position-item-select";
 import { restatementLabel } from "@/lib/core/position";
 import { fmtMinutes } from "@/lib/core/stock";
@@ -26,6 +26,13 @@ export default async function PositionPage({ searchParams }: PageProps<"/positio
   const requested = typeof sp.item === "string" ? sp.item : null;
   const item = list.find((i) => i.id === requested) ?? null;
 
+  const { data: costs } = await supabase
+    .from("daily_cost_summary")
+    .select("business_date, net_sales, usage_cost, labor_cost, labor_hours, usage_pct, labor_pct")
+    .eq("location_id", ctx.location.id)
+    .order("business_date", { ascending: false })
+    .limit(DAYS);
+
   const { data: rows, error: rerr } = item
     ? await supabase
         .from("daily_position")
@@ -43,6 +50,8 @@ export default async function PositionPage({ searchParams }: PageProps<"/positio
         <span className="text-sm text-neutral-500">last {DAYS} days</span>
       </div>
       <Flash error={ierr?.message ?? rerr?.message} />
+
+      <CostLines rows={costs ?? []} />
 
       <PositionItemSelect items={list.map((i) => ({ id: i.id, name: i.name }))} value={item?.id ?? null} />
 
@@ -69,6 +78,68 @@ export default async function PositionPage({ searchParams }: PageProps<"/positio
 }
 
 type ItemT = Pick<Tables<"inventory_items">, "id" | "name" | "base_unit" | "pack_to_base_factor">;
+type CostT = Pick<Tables<"daily_cost_summary">, "business_date" | "net_sales" | "usage_cost" | "labor_cost" | "labor_hours" | "usage_pct" | "labor_pct">;
+
+const pct = (n: number | null | undefined) => (n == null ? "—" : `${Math.round(n * 100)}%`);
+
+/** Pour/food cost and labor, per business day, as $ and % of net sales — both from daily_cost_summary. */
+function CostLines({ rows }: { rows: CostT[] }) {
+  if (rows.length === 0) return null;
+  const withSales = rows.filter((r) => (r.net_sales ?? 0) > 0);
+  const sum = (f: (r: CostT) => number | null) => withSales.reduce((a, r) => a + (f(r) ?? 0), 0);
+  const sales = sum((r) => r.net_sales);
+  const usage = sum((r) => r.usage_cost);
+  const labor = sum((r) => r.labor_cost);
+  const th = "px-2 py-2 text-right text-xs font-medium text-neutral-500 whitespace-nowrap";
+  const td = "px-2 py-2 text-right tabular-nums whitespace-nowrap";
+  return (
+    <details className="rounded-2xl border border-neutral-200 bg-white">
+      <summary className="flex min-h-14 cursor-pointer list-none flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2">
+        <span className="text-base font-medium">Cost lines · last {rows.length} days</span>
+        <span className="flex gap-4 text-sm tabular-nums">
+          <span>
+            pour/food <span className="font-medium">{sales > 0 ? pct(usage / sales) : "—"}</span>
+          </span>
+          <span>
+            labor <span className="font-medium">{sales > 0 ? pct(labor / sales) : "—"}</span>
+          </span>
+        </span>
+      </summary>
+      <div className="overflow-x-auto border-t border-neutral-200">
+        <table className="w-full text-sm">
+          <thead className="border-b border-neutral-200">
+            <tr>
+              <th className={`${th} sticky left-0 bg-white text-left`}>date</th>
+              <th className={th}>net sales</th>
+              <th className={th}>pour/food $</th>
+              <th className={th}>%</th>
+              <th className={th}>labor $</th>
+              <th className={th}>%</th>
+              <th className={th}>hours</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-100">
+            {rows.map((r) => (
+              <tr key={r.business_date ?? ""}>
+                <td className="sticky left-0 bg-white px-2 py-2 text-left font-medium whitespace-nowrap">{fmtDate(r.business_date)}</td>
+                <td className={td}>{fmtMoney(r.net_sales)}</td>
+                <td className={td}>{fmtMoney(r.usage_cost)}</td>
+                <td className={td}>{pct(r.usage_pct)}</td>
+                <td className={td}>{fmtMoney(r.labor_cost)}</td>
+                <td className={td}>{pct(r.labor_pct)}</td>
+                <td className={td}>{r.labor_hours == null ? "—" : Number(r.labor_hours).toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="px-4 py-2 text-xs text-neutral-500">
+          Pour/food = theoretical usage × unit cost (sales × recipes). Labor = regular hours × wage + overtime × wage × 1.5 from Toast time entries; tips not
+          included. Both as a share of net sales. {fmtPctChange(null)}
+        </p>
+      </div>
+    </details>
+  );
+}
 
 function PositionTable({ item, rows }: { item: ItemT; rows: Tables<"daily_position">[] }) {
   const th = "px-2 py-2 text-right text-xs font-medium text-neutral-500 whitespace-nowrap";

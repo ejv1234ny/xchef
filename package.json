@@ -24,7 +24,8 @@
     "position": "tsx scripts/position.ts",
     "validate:position": "tsx scripts/validate-position.ts",
     "portal:pull": "tsx scripts/portal-pull.ts",
-    "quotes:request": "tsx scripts/quotes-request.ts"
+    "quotes:request": "tsx scripts/quotes-request.ts",
+    "labor:sync": "tsx scripts/labor-sync.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
