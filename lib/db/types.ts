@@ -745,6 +745,7 @@ export type Database = {
           id: string
           items: Json
           location_id: string | null
+          note: string | null
           reply_document_id: string | null
           resend_message_id: string | null
           sent_at: string
@@ -758,6 +759,7 @@ export type Database = {
           id?: string
           items?: Json
           location_id?: string | null
+          note?: string | null
           reply_document_id?: string | null
           resend_message_id?: string | null
           sent_at?: string
@@ -771,6 +773,7 @@ export type Database = {
           id?: string
           items?: Json
           location_id?: string | null
+          note?: string | null
           reply_document_id?: string | null
           resend_message_id?: string | null
           sent_at?: string
@@ -1198,18 +1201,21 @@ export type Database = {
           created_at: string
           id: string
           name: string
+          owner_first_name: string | null
         }
         Insert: {
           concept?: string | null
           created_at?: string
           id?: string
           name: string
+          owner_first_name?: string | null
         }
         Update: {
           concept?: string | null
           created_at?: string
           id?: string
           name?: string
+          owner_first_name?: string | null
         }
         Relationships: []
       }

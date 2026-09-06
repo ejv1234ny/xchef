@@ -48,6 +48,10 @@ describe("composeQuoteRequest", () => {
     expect(r.text).toContain("[Q-7KD2PA]");
     expect(r.text.trim().endsWith("Mad Moose Bar & Grill")).toBe(true);
   });
+  it("signs with the owner's first name above the location when the tenant has one", () => {
+    const r = composeQuoteRequest({ locationName: "Mad Moose Bar & Grill", vendorName: "Sysco", token: "Q-7KD2PA", replyTo: "x@y.z", items: [], ownerFirstName: "Eric" });
+    expect(r.text.trim().endsWith("Thanks,\nEric\nMad Moose Bar & Grill")).toBe(true);
+  });
 });
 
 describe("quoteLineToVendorQuote", () => {

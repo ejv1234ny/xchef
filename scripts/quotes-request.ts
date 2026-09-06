@@ -49,15 +49,26 @@ async function main() {
     console.log(hasFlag("shock") ? "No ingredient shows a ≥ 10% 30-day price change; nothing to ask." : "No vendor has a mapping yet; nothing to ask.");
     return;
   }
+  const sender = results[0]?.sender;
+  if (sender) {
+    console.log("");
+    console.log(sender.ok ? `Sender OK: ${results[0].from} (${sender.domain} verified in Resend)` : `SENDER BLOCKED (status blocked_sender): ${sender.reason}`);
+    if (!sender.ok && sender.dns.length) {
+      console.log("DNS records Resend needs on the domain:");
+      console.table(sender.dns.map((d) => ({ record: d.record, type: d.type, name: d.name, value: d.value.length > 60 ? `${d.value.slice(0, 57)}…` : d.value, priority: d.priority ?? "", status: d.status ?? "" })));
+    }
+  }
   for (const r of results) {
     console.log("");
     console.log(`==== ${r.vendorName} → ${r.to ?? "(no contact_email — set it in Settings → Vendors)"}  ${r.skipped ? `SKIPPED: ${r.skipped}` : r.sent ? `SENT ${r.resendMessageId}` : dry ? "DRY RUN" : ""}`);
+    console.log(`From: ${r.from}`);
+    console.log(`Reply-To: ${process.env.INBOUND_EMAIL_ADDRESS ?? "(INBOUND_EMAIL_ADDRESS not set)"}`);
     console.log(`Subject: ${r.subject}`);
     console.log("");
     console.log(r.text);
   }
   console.log("");
-  console.table(results.map((r) => ({ vendor: r.vendorName, to: r.to, items: r.items.length, token: r.token, sent: r.sent, skipped: r.skipped, request: r.requestId?.slice(0, 8) ?? null })));
+  console.table(results.map((r) => ({ vendor: r.vendorName, to: r.to, from: r.from, items: r.items.length, token: r.token, sent: r.sent, skipped: r.skipped, request: r.requestId?.slice(0, 8) ?? null })));
 }
 
 main().catch((e) => {

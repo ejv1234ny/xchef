@@ -12,8 +12,11 @@ import { getLocation, type Logger } from "./intake";
  * the subject. One quote_requests row per email. At most one request per
  * vendor per 7 days unless forced (the "Ask for pricing" button).
  *
- * Env (names only): RESEND_API_KEY, QUOTE_FROM_EMAIL (verified sending
- * identity), INBOUND_EMAIL_ADDRESS (reply-to). Dry runs need none of them.
+ * Env (names only): RESEND_API_KEY, RESEND_FROM_DOMAIN (the restaurant's own
+ * verified sending domain; quotes@<domain>), RESEND_FROM_NAME (display name,
+ * default the location name), INBOUND_EMAIL_ADDRESS (reply-to). While the
+ * domain is not verified in Resend the request is recorded as
+ * status 'blocked_sender' and nothing is sent. Dry runs need none of them.
  */
 
 export const QUOTE_REQUEST_COOLDOWN_DAYS = 7;
@@ -34,10 +37,14 @@ export type QuoteRequestResult = {
   /** true when the email went out (never in a dry run) */
   sent: boolean;
   dry: boolean;
-  /** why nothing was sent: "no contact_email" | "requested within 7 days" | "no mappings" | "error: …" */
+  /** why nothing was sent: "no contact_email" | "requested within 7 days" | "no mappings" | "blocked_sender: …" | "error: …" */
   skipped: string | null;
   requestId: string | null;
   resendMessageId: string | null;
+  /** the From header the email carries (or would carry) */
+  from: string;
+  /** sending-domain verification (checked once per run when RESEND_API_KEY is present) */
+  sender: SenderStatus;
 };
 
 export type SendQuoteRequestsOptions = {
@@ -54,18 +61,58 @@ export type SendQuoteRequestsOptions = {
   now?: Date;
 };
 
-export type QuoteEnv = { apiKey: string; from: string; replyTo: string };
+export type QuoteEnv = { apiKey: string; fromDomain: string; fromName: string; /** "Mad Moose Bar & Grill <quotes@madmoosebarandgrill.com>" */ from: string; replyTo: string };
 
-/** Sending needs all three; a dry run reads what is there and falls back to placeholders. */
-export function quoteEnv(strict: boolean): QuoteEnv {
+/** Local part of the sending address on RESEND_FROM_DOMAIN. */
+export const QUOTE_FROM_LOCAL_PART = "quotes";
+const RESEND_DOMAINS_URL = "https://api.resend.com/domains";
+
+/**
+ * Sending needs RESEND_API_KEY, RESEND_FROM_DOMAIN and INBOUND_EMAIL_ADDRESS;
+ * RESEND_FROM_NAME defaults to the location's name. A dry run reads what is
+ * there and falls back to placeholders. QUOTE_FROM_EMAIL (a sender on another
+ * venture's domain) is no longer read: replies must come from the restaurant.
+ */
+export function quoteEnv(strict: boolean, fallbackName = ""): QuoteEnv {
   const apiKey = process.env.RESEND_API_KEY ?? "";
-  const from = process.env.QUOTE_FROM_EMAIL ?? "";
+  const fromDomain = (process.env.RESEND_FROM_DOMAIN ?? "").trim().toLowerCase().replace(/^@/, "");
+  const fromName = (process.env.RESEND_FROM_NAME ?? "").trim() || fallbackName;
   const replyTo = process.env.INBOUND_EMAIL_ADDRESS ?? "";
   if (strict) {
-    const missing = [!apiKey && "RESEND_API_KEY", !from && "QUOTE_FROM_EMAIL", !replyTo && "INBOUND_EMAIL_ADDRESS"].filter(Boolean);
+    const missing = [!apiKey && "RESEND_API_KEY", !fromDomain && "RESEND_FROM_DOMAIN", !replyTo && "INBOUND_EMAIL_ADDRESS"].filter(Boolean);
     if (missing.length) throw new Error(`Missing environment variable(s) ${missing.join(", ")}`);
   }
-  return { apiKey, from, replyTo: replyTo || "(INBOUND_EMAIL_ADDRESS not set)" };
+  const address = fromDomain ? `${QUOTE_FROM_LOCAL_PART}@${fromDomain}` : "(RESEND_FROM_DOMAIN not set)";
+  const from = fromName ? `${fromName.replace(/[<>]/g, "")} <${address}>` : address;
+  return { apiKey, fromDomain, fromName, from, replyTo: replyTo || "(INBOUND_EMAIL_ADDRESS not set)" };
+}
+
+export type DnsRecord = { record: string; type: string; name: string; value: string; ttl?: string | null; priority?: number | null; status?: string | null };
+export type SenderStatus = { ok: boolean; domain: string; status: string | null; reason: string | null; dns: DnsRecord[] };
+
+/**
+ * Is RESEND_FROM_DOMAIN verified for sending in Resend? When it is not, the DNS
+ * records Resend wants are returned so the report / dry run can show them.
+ * Never throws: an API failure is a blocked sender with the reason.
+ */
+export async function checkSender(env: Pick<QuoteEnv, "apiKey" | "fromDomain">, fetchImpl: typeof fetch = fetch): Promise<SenderStatus> {
+  const base: SenderStatus = { ok: false, domain: env.fromDomain, status: null, reason: null, dns: [] };
+  if (!env.fromDomain) return { ...base, reason: "RESEND_FROM_DOMAIN is not set" };
+  if (!env.apiKey) return { ...base, reason: "RESEND_API_KEY is not set (cannot verify the sending domain)" };
+  const headers = { Authorization: `Bearer ${env.apiKey}` };
+  try {
+    const res = await fetchImpl(RESEND_DOMAINS_URL, { headers });
+    if (!res.ok) return { ...base, reason: `Resend GET /domains: ${res.status}` };
+    const body = (await res.json()) as { data?: Array<{ id: string; name: string; status: string }> };
+    const d = (body.data ?? []).find((x) => x.name.toLowerCase() === env.fromDomain);
+    if (!d) return { ...base, reason: `${env.fromDomain} is not registered as a sending domain in Resend` };
+    if (d.status === "verified") return { ...base, ok: true, status: "verified" };
+    const det = await fetchImpl(`${RESEND_DOMAINS_URL}/${encodeURIComponent(d.id)}`, { headers });
+    const detail = det.ok ? ((await det.json()) as { records?: DnsRecord[] }) : {};
+    return { ...base, status: d.status, reason: `${env.fromDomain} is "${d.status}" in Resend — its DNS records are not in place yet`, dns: detail.records ?? [] };
+  } catch (e) {
+    return { ...base, reason: `Resend domains lookup failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
 }
 
 /** POST https://api.resend.com/emails → { id }. */
@@ -112,7 +159,9 @@ export async function sendQuoteRequests(opts: SendQuoteRequestsOptions): Promise
   const dry = opts.dry ?? false;
   const now = opts.now ?? new Date();
   const location = await getLocation(svc, opts.locationId);
-  const env = quoteEnv(!dry);
+  const env = quoteEnv(!dry, location.name);
+  const { data: tenant } = await svc.from("tenants").select("owner_first_name").eq("id", location.tenant_id).maybeSingle();
+  const sender = await checkSender(env, opts.fetchImpl);
 
   let vq = svc.from("vendors").select("id, name, contact_email").eq("tenant_id", location.tenant_id);
   if (opts.vendorId) vq = vq.eq("id", opts.vendorId);
@@ -127,6 +176,7 @@ export async function sendQuoteRequests(opts: SendQuoteRequestsOptions): Promise
       .from("quote_requests")
       .select("vendor_id, sent_at")
       .in("vendor_id", vendorIds)
+      .in("status", ["sent", "replied", "no_reply"])
       .gte("sent_at", new Date(now.getTime() - QUOTE_REQUEST_COOLDOWN_DAYS * 86_400_000).toISOString()),
   ]);
   if (merr) throw new Error(`read vendor_item_mappings: ${merr.message}`);
@@ -158,14 +208,23 @@ export async function sendQuoteRequests(opts: SendQuoteRequestsOptions): Promise
     if (items.length === 0 && !opts.vendorId) continue;
 
     const token = dry ? quoteToken() : await uniqueToken(svc);
-    const composed = composeQuoteRequest({ locationName: location.name, vendorName: vendor.name, items, token, replyTo: env.replyTo });
-    const result: QuoteRequestResult = { vendorId: vendor.id, vendorName: vendor.name, to: vendor.contact_email, token, ...composed, items, sent: false, dry, skipped: null, requestId: null, resendMessageId: null };
+    const composed = composeQuoteRequest({ locationName: location.name, vendorName: vendor.name, items, token, replyTo: env.replyTo, ownerFirstName: tenant?.owner_first_name ?? null });
+    const result: QuoteRequestResult = { vendorId: vendor.id, vendorName: vendor.name, to: vendor.contact_email, token, ...composed, items, sent: false, dry, skipped: null, requestId: null, resendMessageId: null, from: env.from, sender };
 
     if (items.length === 0) result.skipped = "no mappings";
     else if (!vendor.contact_email) result.skipped = "no contact_email";
     else if (recentVendors.has(vendor.id) && !opts.force) result.skipped = `requested within ${QUOTE_REQUEST_COOLDOWN_DAYS} days`;
 
-    if (!result.skipped && !dry) {
+    if (!result.skipped && !dry && !sender.ok) {
+      // Held, not sent: nothing leaves from a domain that is not the restaurant's own verified one.
+      const { data: row, error: berr } = await svc
+        .from("quote_requests")
+        .insert({ tenant_id: location.tenant_id, location_id: location.id, vendor_id: vendor.id, token, sent_at: now.toISOString(), items: items as unknown as Json, status: "blocked_sender", note: sender.reason })
+        .select("id")
+        .single();
+      result.skipped = `blocked_sender: ${sender.reason}`;
+      result.requestId = berr ? null : row.id;
+    } else if (!result.skipped && !dry) {
       try {
         const messageId = await sendViaResend(env, { to: vendor.contact_email as string, subject: composed.subject, text: composed.text, token }, opts.fetchImpl);
         const { data: row, error: ierr } = await svc
@@ -191,7 +250,7 @@ export async function sendQuoteRequests(opts: SendQuoteRequestsOptions): Promise
         result.skipped = `error: ${e instanceof Error ? e.message : String(e)}`;
       }
     }
-    log("quote-request", { vendor: vendor.name, to: vendor.contact_email, token, items: items.length, dry, sent: result.sent, skipped: result.skipped });
+    log("quote-request", { vendor: vendor.name, to: vendor.contact_email, from: env.from, token, items: items.length, dry, sent: result.sent, skipped: result.skipped });
     results.push(result);
   }
   return results;

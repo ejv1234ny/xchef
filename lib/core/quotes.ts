@@ -53,7 +53,7 @@ export type ComposedQuoteRequest = { subject: string; text: string };
  * these on phones and reply inline or attach their price sheet. The subject
  * carries the token so the reply threads back to the request.
  */
-export function composeQuoteRequest(input: { locationName: string; vendorName: string; items: QuoteRequestItem[]; token: string; replyTo: string }): ComposedQuoteRequest {
+export function composeQuoteRequest(input: { locationName: string; vendorName: string; items: QuoteRequestItem[]; token: string; replyTo: string; /** signs the email: "Thanks, Eric / Mad Moose Bar & Grill" */ ownerFirstName?: string | null }): ComposedQuoteRequest {
   const subject = `[${input.token}] Pricing request from ${input.locationName}`;
   const lines = input.items.map((it) => {
     const sku = it.vendor_sku ? `#${it.vendor_sku}  ` : "";
@@ -75,6 +75,7 @@ export function composeQuoteRequest(input: { locationName: string; vendorName: s
     `Please reply to this email (${input.replyTo}) and keep [${input.token}] in the subject so it files automatically.`,
     "",
     "Thanks,",
+    ...(input.ownerFirstName?.trim() ? [input.ownerFirstName.trim()] : []),
     input.locationName,
   ].join("\n");
   return { subject, text };

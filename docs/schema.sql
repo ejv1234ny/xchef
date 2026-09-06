@@ -1347,3 +1347,16 @@ select
   end as reason
 from base b;
 alter view verification_queue set (security_invoker = true);
+
+-- ============================================================================
+--  MIGRATION 0016 (20260906110000_quote_sender.sql, applied)
+--  tenants.owner_first_name signs outbound quote requests; quote_requests.status
+--  gains 'blocked_sender' (held because RESEND_FROM_DOMAIN is not verified in
+--  Resend) with quote_requests.note carrying the reason.
+-- ============================================================================
+alter table tenants add column if not exists owner_first_name text;
+update tenants set owner_first_name = 'Eric' where name = 'Mad Moose' and owner_first_name is null;
+
+alter table quote_requests drop constraint if exists quote_requests_status_check;
+alter table quote_requests add constraint quote_requests_status_check check (status in ('sent','replied','no_reply','blocked_sender'));
+alter table quote_requests add column if not exists note text;

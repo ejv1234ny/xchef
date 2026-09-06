@@ -24,6 +24,7 @@ export async function askForPricing(formData: FormData) {
   const r = results[0];
   if (!r) return msg("error", "Vendor not found");
   if (r.skipped === "no contact_email") return msg("error", `${r.vendorName} has no contact email yet — add one in Settings → Vendors.`);
+  if (r.skipped?.startsWith("blocked_sender")) return msg("error", `Held, not sent: the sending domain ${r.sender.domain || "(RESEND_FROM_DOMAIN)"} is not verified in Resend yet. The request is saved as blocked_sender; add the DNS records from REPORT-3 and try again.`);
   if (r.skipped) return msg("error", `${r.vendorName}: ${r.skipped}`);
   msg("ok", `Asked ${r.vendorName} for pricing on ${r.items.length} item${r.items.length === 1 ? "" : "s"} (${r.token}). Their reply files itself.`);
 }
