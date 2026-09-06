@@ -5,6 +5,7 @@ import type { Tables } from "@/lib/db/types";
 import { Chip, fmtDate, fmtMoney, fmtQty, Flash } from "@/components/ui-format";
 import { PositionItemSelect } from "@/components/position-item-select";
 import { restatementLabel } from "@/lib/core/position";
+import { fmtMinutes } from "@/lib/core/stock";
 
 export const metadata = { title: "Position" };
 
@@ -58,7 +59,8 @@ export default async function PositionPage({ searchParams }: PageProps<"/positio
       )}
 
       <p className="text-xs text-neutral-500">
-        Quantities in {item?.base_unit ?? "base units"}. Variance = expected close − counted; positive means short. Restated days were
+        Quantities in {item?.base_unit ?? "base units"}. Variance = expected close − counted; positive means short. 86&apos;d = how long the
+        menu items that use it were out of stock in Toast that day (low usage on such a day is explained, not variance). Restated days were
         rewritten after the fact (a late invoice, rebuilt sales, a backdated count or a recipe change) — the change is recorded, not
         erased. <Link href="/" className="underline">Back to verify</Link>
       </p>
@@ -86,6 +88,7 @@ function PositionTable({ item, rows }: { item: ItemT; rows: Tables<"daily_positi
             <th className={th}>expected close</th>
             <th className={th}>counted</th>
             <th className={th}>variance $</th>
+            <th className={th}>86&apos;d</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-100">
@@ -117,6 +120,9 @@ function PositionTable({ item, rows }: { item: ItemT; rows: Tables<"daily_positi
                 <td className={`${td} ${v != null && v > 0 ? "text-red-700" : v != null && v < 0 ? "text-emerald-700" : ""}`}>
                   {v == null ? "—" : `${v > 0 ? "−" : v < 0 ? "+" : ""}${fmtMoney(Math.abs(v))}`}
                   {r.variance_qty != null ? <span className="block text-xs text-neutral-500">{fmtQty(Math.abs(r.variance_qty))} {item.base_unit} {r.variance_qty > 0 ? "short" : r.variance_qty < 0 ? "over" : ""}</span> : null}
+                </td>
+                <td className={`${td} ${r.stockout_minutes > 0 ? "text-red-700" : "text-neutral-400"}`} title="minutes the top menu item was out of stock in Toast">
+                  {fmtMinutes(r.stockout_minutes) || "—"}
                 </td>
               </tr>
             );

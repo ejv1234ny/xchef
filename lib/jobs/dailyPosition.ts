@@ -1,7 +1,8 @@
 import Decimal from "decimal.js";
 import { createServiceSupabase, type ServiceClient } from "@/lib/db/service";
 import type { Tables, TablesInsert } from "@/lib/db/types";
-import { addDays } from "@/lib/core/dates";
+import { addDays, businessDayWindow } from "@/lib/core/dates";
+import { stockoutMinutes } from "@/lib/core/stock";
 import {
   baselineOpening,
   computeDailyPosition,
@@ -390,6 +391,44 @@ async function runForLocation(
       }
     }
 
+    // ---- 86-list: minutes each ingredient's menu items were OUT_OF_STOCK per business day ------------------
+    const guidsByItem = new Map<string, Set<string>>();
+    {
+      const links = await fetchAll<{ inventory_item_id: string; menu_items: { toast_menu_item_guid: string | null } | null }>((from, to) =>
+        svc.from("recipe_components").select("inventory_item_id, menu_items!inner(toast_menu_item_guid)").eq("menu_items.tenant_id", location.tenant_id).order("id").range(from, to),
+      );
+      for (const l of links) {
+        const guid = l.menu_items?.toast_menu_item_guid;
+        if (!guid) continue;
+        const set = guidsByItem.get(l.inventory_item_id) ?? new Set<string>();
+        set.add(guid);
+        guidsByItem.set(l.inventory_item_id, set);
+      }
+    }
+    const windowEnd = businessDayWindow(end, location.timezone).end;
+    const stockEvents = await fetchAll<{ toast_menu_item_guid: string; status: string; observed_at: string }>((from, to) =>
+      svc.from("menu_item_stock_events").select("toast_menu_item_guid, status, observed_at").eq("location_id", location.id).lt("observed_at", windowEnd.toISOString()).order("observed_at").order("id").range(from, to),
+    );
+    const eventsByGuid = new Map<string, Array<{ observed_at: string; status: string }>>();
+    for (const e of stockEvents) {
+      const list = eventsByGuid.get(e.toast_menu_item_guid) ?? [];
+      list.push({ observed_at: e.observed_at, status: e.status });
+      eventsByGuid.set(e.toast_menu_item_guid, list);
+    }
+    const windows = new Map(dates.map((d) => [d, businessDayWindow(d, location.timezone)]));
+    const stockoutFor = (itemId: string, date: string): number => {
+      const guids = guidsByItem.get(itemId);
+      if (!guids || guids.size === 0 || eventsByGuid.size === 0) return 0;
+      const w = windows.get(date)!;
+      let max = 0;
+      for (const g of guids) {
+        const ev = eventsByGuid.get(g);
+        if (!ev) continue;
+        max = Math.max(max, stockoutMinutes(ev, w.start, w.end));
+      }
+      return max;
+    };
+
     // ---- openings for the first day: prior row, else the on_hand_estimate window before `start` ------
     const openingByItem = new Map<string, { qty: string; lastVerifiedAt: string | null }>();
     const needBaseline: string[] = [];
@@ -471,14 +510,19 @@ async function runForLocation(
           opening = nextOpening(row);
           lastVerified = row.last_verified_at;
 
+          const stockout = stockoutFor(item.id, date);
           let restated_at: string | null = null;
           let restatement_reason: RestatementReason | null = null;
           if (prev) {
-            if (!rowChanged(comparable(prev), row)) continue; // identical: leave computed_at/restated_at alone
-            restatement_reason = directReason(triggers, item.id, date) ?? carry ?? fallbackReason;
-            restated_at = nowIso;
-            carry = restatement_reason;
-            summary.rows_restated += 1;
+            const changed = rowChanged(comparable(prev), row);
+            if (!changed && (prev.stockout_minutes ?? 0) === stockout) continue; // identical: leave computed_at/restated_at alone
+            if (changed) {
+              restatement_reason = directReason(triggers, item.id, date) ?? carry ?? fallbackReason;
+              restated_at = nowIso;
+              carry = restatement_reason;
+              summary.rows_restated += 1;
+            }
+            // only the 86'd minutes changed: rewrite the row without calling it a restatement
           } else {
             carry = carry ?? directReason(triggers, item.id, date);
           }
@@ -498,6 +542,7 @@ async function runForLocation(
             last_verified_at: row.last_verified_at,
             included_invoice_ids: row.included_invoice_ids,
             included_count_id: row.included_count_id,
+            stockout_minutes: stockout,
             computed_at: nowIso,
             restated_at: restated_at ?? prev?.restated_at ?? null,
             restatement_reason: restatement_reason ?? prev?.restatement_reason ?? null,

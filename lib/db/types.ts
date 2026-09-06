@@ -32,6 +32,7 @@ export type Database = {
           received_qty: number
           restated_at: string | null
           restatement_reason: string | null
+          stockout_minutes: number
           theoretical_used_qty: number
           variance_qty: number | null
           variance_value: number | null
@@ -53,6 +54,7 @@ export type Database = {
           received_qty?: number
           restated_at?: string | null
           restatement_reason?: string | null
+          stockout_minutes?: number
           theoretical_used_qty?: number
           variance_qty?: number | null
           variance_value?: number | null
@@ -74,6 +76,7 @@ export type Database = {
           received_qty?: number
           restated_at?: string | null
           restatement_reason?: string | null
+          stockout_minutes?: number
           theoretical_used_qty?: number
           variance_qty?: number | null
           variance_value?: number | null
@@ -114,6 +117,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "verification_queue"
             referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "daily_position_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
           },
           {
             foreignKeyName: "daily_position_location_id_fkey"
@@ -195,6 +205,13 @@ export type Database = {
           to_addresses?: string[]
         }
         Relationships: [
+          {
+            foreignKeyName: "inbound_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "inbound_events_location_id_fkey"
             columns: ["location_id"]
@@ -408,6 +425,13 @@ export type Database = {
           verified_by_clean_copy_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "invoice_documents_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "invoice_documents_location_id_fkey"
             columns: ["location_id"]
@@ -698,6 +722,72 @@ export type Database = {
           },
         ]
       }
+      menu_item_stock_events: {
+        Row: {
+          created_at: string
+          id: string
+          location_id: string
+          observed_at: string
+          quantity: number | null
+          status: string
+          toast_menu_item_guid: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location_id: string
+          observed_at?: string
+          quantity?: number | null
+          status: string
+          toast_menu_item_guid: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location_id?: string
+          observed_at?: string
+          quantity?: number | null
+          status?: string
+          toast_menu_item_guid?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
       menu_items: {
         Row: {
           category: string | null
@@ -783,6 +873,13 @@ export type Database = {
           vendor_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "quote_requests_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "quote_requests_location_id_fkey"
             columns: ["location_id"]
@@ -918,7 +1015,21 @@ export type Database = {
             foreignKeyName: "recipe_components_menu_item_id_fkey"
             columns: ["menu_item_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
             referencedRelation: "menu_item_cost"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_item_stock_latest"
             referencedColumns: ["menu_item_id"]
           },
           {
@@ -972,6 +1083,13 @@ export type Database = {
             foreignKeyName: "sales_facts_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
@@ -1000,7 +1118,21 @@ export type Database = {
             foreignKeyName: "sales_facts_menu_item_id_fkey"
             columns: ["menu_item_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
             referencedRelation: "menu_item_cost"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_item_stock_latest"
             referencedColumns: ["menu_item_id"]
           },
           {
@@ -1095,6 +1227,13 @@ export type Database = {
             foreignKeyName: "stock_counts_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "stock_counts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
@@ -1165,6 +1304,13 @@ export type Database = {
           window_start?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "sync_runs_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "sync_runs_location_id_fkey"
             columns: ["location_id"]
@@ -1249,6 +1395,13 @@ export type Database = {
             foreignKeyName: "toast_credentials_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: true
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "toast_credentials_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: true
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
@@ -1304,6 +1457,13 @@ export type Database = {
           voided?: boolean
         }
         Relationships: [
+          {
+            foreignKeyName: "toast_orders_raw_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "toast_orders_raw_location_id_fkey"
             columns: ["location_id"]
@@ -1806,6 +1966,13 @@ export type Database = {
             foreignKeyName: "stock_counts_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "stock_counts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
@@ -1852,6 +2019,55 @@ export type Database = {
         }
         Relationships: []
       }
+      ingredient_stockouts: {
+        Row: {
+          inventory_item_id: string | null
+          location_id: string | null
+          menu_item_id: string | null
+          menu_item_name: string | null
+          quantity: number | null
+          since: string | null
+          status: string | null
+          units_30d: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "catalog_health"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "unit_cogs_master"
+            referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "recipe_components_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["inventory_item_id"]
+          },
+        ]
+      }
       item_price_history: {
         Row: {
           cost_per_base_unit: number | null
@@ -1863,6 +2079,13 @@ export type Database = {
           vendor_id: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "invoice_documents_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "invoice_documents_location_id_fkey"
             columns: ["location_id"]
@@ -1959,6 +2182,54 @@ export type Database = {
           },
         ]
       }
+      menu_item_stock_latest: {
+        Row: {
+          location_id: string | null
+          menu_item_id: string | null
+          menu_item_name: string | null
+          observed_at: string | null
+          quantity: number | null
+          status: string | null
+          toast_menu_item_guid: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "on_hand_estimate"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "vendor_switch_savings"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "menu_item_stock_events_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "verification_queue"
+            referencedColumns: ["location_id"]
+          },
+        ]
+      }
       on_hand_estimate: {
         Row: {
           base_unit: Database["public"]["Enums"]["uom"] | null
@@ -1993,6 +2264,13 @@ export type Database = {
           received_date: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "invoice_documents_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
           {
             foreignKeyName: "invoice_documents_location_id_fkey"
             columns: ["location_id"]
@@ -2140,6 +2418,13 @@ export type Database = {
             foreignKeyName: "sales_facts_location_id_fkey"
             columns: ["location_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
             referencedRelation: "locations"
             referencedColumns: ["id"]
           },
@@ -2168,7 +2453,21 @@ export type Database = {
             foreignKeyName: "sales_facts_menu_item_id_fkey"
             columns: ["menu_item_id"]
             isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
             referencedRelation: "menu_item_cost"
+            referencedColumns: ["menu_item_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_menu_item_id_fkey"
+            columns: ["menu_item_id"]
+            isOneToOne: false
+            referencedRelation: "menu_item_stock_latest"
             referencedColumns: ["menu_item_id"]
           },
           {
@@ -2225,6 +2524,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "verification_queue"
             referencedColumns: ["inventory_item_id"]
+          },
+          {
+            foreignKeyName: "sales_facts_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "ingredient_stockouts"
+            referencedColumns: ["location_id"]
           },
           {
             foreignKeyName: "sales_facts_location_id_fkey"

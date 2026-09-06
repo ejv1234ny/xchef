@@ -5,6 +5,7 @@ import { flattenOrders, touchedBusinessDates } from "@/lib/core/flatten";
 import { businessDateToIso } from "@/lib/core/dates";
 import { ToastClient } from "@/lib/toast/client";
 import { OrderSchema, type ToastOrder } from "@/lib/toast/schemas";
+import { pollStockStatus, type StockPollSummary } from "./stockPoll";
 
 const HOUR = 3600_000;
 const CHUNK_MS = 7 * 24 * HOUR;
@@ -29,6 +30,8 @@ export type SyncRunSummary = {
 
 export type SyncOptions = {
   locationId?: string;
+  /** default true: after the orders window, diff GET /stock/v1/inventory into menu_item_stock_events */
+  pollStock?: boolean;
   /** chunks (≤ 7 days each) to process per invocation; cron uses a small number, the CLI uses Infinity */
   maxChunks?: number;
   now?: Date;
@@ -79,7 +82,7 @@ export function planChunks(start: Date, end: Date): Array<{ start: Date; end: Da
  * that stops early simply resumes next time. Returns caughtUp=false when
  * chunks remain.
  */
-export async function runToastSync(opts: SyncOptions = {}): Promise<{ runs: SyncRunSummary[]; caughtUp: boolean }> {
+export async function runToastSync(opts: SyncOptions = {}): Promise<{ runs: SyncRunSummary[]; caughtUp: boolean; stock: StockPollSummary[] }> {
   const svc = opts.supabase ?? createServiceSupabase();
   const log = opts.log ?? (() => {});
   const now = opts.now ?? new Date();
@@ -91,6 +94,7 @@ export async function runToastSync(opts: SyncOptions = {}): Promise<{ runs: Sync
   if (error) throw error;
 
   const runs: SyncRunSummary[] = [];
+  const stock: StockPollSummary[] = [];
   let caughtUp = true;
 
   for (const location of locations ?? []) {
@@ -119,8 +123,10 @@ export async function runToastSync(opts: SyncOptions = {}): Promise<{ runs: Sync
         .update({ last_synced_at: chunk.end.toISOString() })
         .eq("location_id", location.id);
     }
+    // 86-list: one cheap read per run; its own summary, never the sync's error.
+    if (opts.pollStock !== false) stock.push(await pollStockStatus(svc, ctx.client, location, log, now));
   }
-  return { runs, caughtUp };
+  return { runs, caughtUp, stock };
 }
 
 async function syncWindow(

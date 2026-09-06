@@ -126,3 +126,14 @@ export function Flash({ ok, error }: { ok?: string | string[]; error?: string | 
     </>
   );
 }
+
+/** "Fri 8:40 pm" (this week) or "Sep 4, 8:40 pm" in the location's timezone — for "86'd since …". */
+export function fmtSince(iso: string | null | undefined, timezone: string, now = new Date()): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "numeric", minute: "2-digit", hour12: true }).format(d).toLowerCase();
+  const withinWeek = now.getTime() - d.getTime() < 6 * 86_400_000;
+  const day = new Intl.DateTimeFormat("en-US", withinWeek ? { timeZone: timezone, weekday: "short" } : { timeZone: timezone, month: "short", day: "numeric" }).format(d);
+  return `${day} ${time}`;
+}

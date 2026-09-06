@@ -180,6 +180,14 @@ export class ToastClient {
     return Array.isArray(body) ? body : [];
   }
 
+  /** GET /stock/v1/inventory (scope stock:read): the items currently OUT_OF_STOCK or at a QUANTITY. Untyped here; lib/core/stock.ts validates. */
+  async stockInventory(): Promise<unknown[]> {
+    const res = await this.get("/stock/v1/inventory");
+    if (!res.ok) throw new Error(`stock inventory ${res.status}: ${await res.text()}`);
+    const body: unknown = await res.json();
+    return Array.isArray(body) ? body : [];
+  }
+
   async restaurant(): Promise<unknown> {
     const res = await this.get(`/restaurants/v1/restaurants/${this.opts.restaurantGuid}`);
     if (!res.ok) throw new Error(`restaurant ${res.status}: ${await res.text()}`);

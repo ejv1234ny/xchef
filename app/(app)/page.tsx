@@ -4,7 +4,7 @@ import { createServerSupabase } from "@/lib/db/server";
 import { hourIn, todayIn } from "@/lib/core/dates";
 import { daysBetween, reconciliationDate, restatementLabel } from "@/lib/core/position";
 import type { Tables } from "@/lib/db/types";
-import { expectationText, fmtDate, fmtDays, fmtMoney, fmtPacks, fmtQty, packWord, Chip, Flash } from "@/components/ui-format";
+import { expectationText, fmtDate, fmtDays, fmtMoney, fmtPacks, fmtQty, fmtSince, packWord, Chip, Flash } from "@/components/ui-format";
 import { confirmEstimate, saveCount } from "./verify/actions";
 
 export const metadata = { title: "Verify" };
@@ -24,7 +24,7 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
   const yesterday = reconciliationDate(ctx.location.timezone);
   const today = todayIn(ctx.location.timezone);
 
-  const [{ data: queue, error: qerr }, saved, { data: daily }] = await Promise.all([
+  const [{ data: queue, error: qerr }, saved, { data: daily }, { data: stockouts }] = await Promise.all([
     supabase
       .from("verification_queue")
       .select("*")
@@ -38,10 +38,13 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
       .select("inventory_item_id, business_date, expected_close_qty, last_verified_at, restated_at, restatement_reason")
       .eq("location_id", ctx.location.id)
       .eq("business_date", yesterday),
+    // ingredients whose top menu item is 86'd right now (Toast Stock, polled every 5 minutes)
+    supabase.from("ingredient_stockouts").select("inventory_item_id, menu_item_name, since").eq("location_id", ctx.location.id),
   ]);
 
   const rows = queue ?? [];
   const dailyById = new Map((daily ?? []).map((d) => [d.inventory_item_id, d]));
+  const stockoutById = new Map((stockouts ?? []).map((s) => [s.inventory_item_id ?? "", s]));
 
   return (
     <div className="flex flex-col gap-4 py-4">
@@ -72,7 +75,7 @@ export default async function VerifyPage({ searchParams }: PageProps<"/">) {
         <ul className="flex flex-col gap-3">
           {rows.map((r) => (
             <li key={r.inventory_item_id ?? r.inventory_item_name ?? ""}>
-              <QueueRow row={r} position={position} daily={dailyById.get(r.inventory_item_id ?? "") ?? null} today={today} />
+              <QueueRow row={r} position={position} daily={dailyById.get(r.inventory_item_id ?? "") ?? null} today={today} stockout={stockoutById.get(r.inventory_item_id ?? "") ?? null} timezone={ctx.location.timezone} />
             </li>
           ))}
         </ul>
@@ -99,8 +102,9 @@ function PositionToggle({ position }: { position: Position }) {
 
 type QueueRowT = Tables<"verification_queue">;
 type DailyT = Pick<Tables<"daily_position">, "inventory_item_id" | "business_date" | "expected_close_qty" | "last_verified_at" | "restated_at" | "restatement_reason">;
+type StockoutT = Pick<Tables<"ingredient_stockouts">, "inventory_item_id" | "menu_item_name" | "since">;
 
-function QueueRow({ row, position, daily, today }: { row: QueueRowT; position: Position; daily: DailyT | null; today: string }) {
+function QueueRow({ row, position, daily, today, stockout, timezone }: { row: QueueRowT; position: Position; daily: DailyT | null; today: string; stockout: StockoutT | null; timezone: string }) {
   const never = row.has_baseline === false;
   const word = packWord(row.inventory_item_name, row.pack_to_base_factor, 2);
   const countsInPacks = word !== null;
@@ -136,6 +140,12 @@ function QueueRow({ row, position, daily, today }: { row: QueueRowT; position: P
           {row.on_hand_packs != null && countsInPacks ? ` · ${fmtQty(row.on_hand_qty)} ${row.base_unit}` : ""}
         </p>
         {daily ? <DailyLine row={row} daily={daily} today={today} /> : null}
+        {stockout ? (
+          <p className="mt-1 text-xs">
+            <Chip className="bg-red-100 text-red-900">86&apos;d since {fmtSince(stockout.since, timezone)}</Chip>
+            <span className="ml-1 text-neutral-500">{stockout.menu_item_name} is out of stock in Toast — low usage today is explained</span>
+          </p>
+        ) : null}
       </div>
 
       <div className="flex gap-2">
